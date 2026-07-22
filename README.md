@@ -180,9 +180,3 @@ docker compose up -d
 Issue와 Pull Request는 언제든지 환영합니다.
 
 기능 추가나 큰 변경 사항은 먼저 Issue를 통해 논의한 후 진행해 주세요.
-
----
-
-### 📄 License
-
-This project is licensed under the **MIT License**.
