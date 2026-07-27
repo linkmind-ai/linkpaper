@@ -61,39 +61,11 @@
 
 ### 🏗️ Architecture
 
-> 🚧 Coming Soon
+#### Component Diagram
 
-```mermaid
-flowchart TD
-
-    U[👤 User]
-
-    FE[React Frontend]
-    BE[FastAPI Backend]
-
-    PIPE[GraphRAG Pipeline]
-
-    ES[(Elasticsearch)]
-    KG[(Neo4j Knowledge Graph)]
-
-    LLM[LLM]
-
-    ANS[Answer]
-
-    U --> FE
-    FE --> BE
-    BE --> PIPE
-
-    PIPE --> ES
-    PIPE --> KG
-
-    ES --> PIPE
-    KG --> PIPE
-
-    PIPE --> LLM
-    LLM --> ANS
-    ANS --> FE
-```
+<div align="center">
+  <img src="docs/component_diagram.png" alt="LinkPaper Component Diagram" width="800" />
+</div>
 
 ---
 
