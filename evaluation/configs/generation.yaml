@@ -1,0 +1,53 @@
+# 생성 품질 평가.
+#
+# judge.type을 openai로 바꾸면 LLM 심판 점수(judge.*)가 추가된다. 기본값은
+# 결정적 심판이라 CI에서 비용 없이 회귀만 감지한다.
+
+suite: generation
+dataset: datasets/generation/sample.jsonl
+
+target:
+  type: lexical_baseline
+  options:
+    corpus: fixtures/mock_corpus.jsonl
+    top_k: 10
+    citation_count: 3
+    answer_sentences: 2
+
+judge:
+  type: heuristic
+  # type: openai
+  # model: gpt-4o-mini
+
+# 이름 붙인 타깃. `--target http`처럼 이름으로 통째로 교체한다.
+targets:
+  baseline:
+    type: lexical_baseline
+    options:
+      corpus: fixtures/mock_corpus.jsonl
+      top_k: 10
+      citation_count: 3
+      answer_sentences: 2
+  http:
+    type: http_backend
+    options:
+      base_url: ${LINKPAPER_API_URL:-http://localhost:8000}
+      api_prefix: /api/v1
+      timeout_s: 60
+
+baseline: baselines/generation.json
+
+gates:
+  generation.groundedness_lexical:
+    min: 0.60
+    max_regression: 0.05
+  generation.citation_validity:
+    min: 0.95
+  generation.has_citation:
+    min: 0.95
+  operational.error_rate:
+    max: 0.05
+
+run:
+  concurrency: 4
+  output_dir: runs

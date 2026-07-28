@@ -1,0 +1,23 @@
+{
+  "run_id": "seed-extraction",
+  "suite": "extraction",
+  "target": "lexical_baseline",
+  "dataset_sha256": "f8b30040b0d4fea5",
+  "git_sha": null,
+  "aggregate": {
+    "extraction.entity_coverage": 0.875,
+    "extraction.evidence_attachment": 1.0,
+    "extraction.relaxed_f1": 0.4505952380952381,
+    "extraction.relaxed_precision": 0.325,
+    "extraction.relaxed_recall": 0.8125,
+    "extraction.triple_f1": 0.4505952380952381,
+    "extraction.triple_precision": 0.325,
+    "extraction.triple_recall": 0.8125,
+    "operational.case_count": 8.0,
+    "operational.error_rate": 0.0,
+    "operational.latency_ms_mean": 0.062125,
+    "operational.latency_ms_p50": 0.057,
+    "operational.latency_ms_p95": 0.09534999999999999,
+    "operational.latency_ms_max": 0.102
+  }
+}

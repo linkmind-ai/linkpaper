@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "linkpaper-eval"
+version = "0.1.0"
+description = "LinkPaper GraphRAG evaluation harness"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28,<1.0",
+    "pydantic>=2.9,<3.0",
+    "pyyaml>=6.0,<7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9.0",
+]
+
+[project.scripts]
+linkpaper-eval = "linkpaper_eval.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/linkpaper_eval"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
