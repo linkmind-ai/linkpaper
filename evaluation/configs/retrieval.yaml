@@ -1,0 +1,48 @@
+# 검색 품질 평가.
+#
+# 기본 타깃은 오프라인 BM25 베이스라인이라 API 키나 실행 중인 백엔드 없이도
+# 동작한다. 백엔드가 준비되면 `--target http`로 바꿔서 같은 지표로 비교한다.
+
+suite: retrieval
+dataset: datasets/retrieval/sample.jsonl
+
+target:
+  type: lexical_baseline
+  options:
+    corpus: fixtures/mock_corpus.jsonl
+    top_k: 10
+    routing_threshold: 0.45
+
+# 이름 붙인 타깃. `--target http`처럼 이름으로 통째로 교체한다.
+targets:
+  baseline:
+    type: lexical_baseline
+    options:
+      corpus: fixtures/mock_corpus.jsonl
+      top_k: 10
+      routing_threshold: 0.45
+  http:
+    type: http_backend
+    options:
+      base_url: ${LINKPAPER_API_URL:-http://localhost:8000}
+      api_prefix: /api/v1
+      timeout_s: 60
+
+k_values: [1, 3, 5, 10]
+
+baseline: baselines/retrieval.json
+
+gates:
+  retrieval.recall@5:
+    min: 0.55
+    max_regression: 0.03
+  retrieval.ndcg@10:
+    max_regression: 0.03
+  routing.accuracy:
+    min: 0.50
+  operational.error_rate:
+    max: 0.05
+
+run:
+  concurrency: 4
+  output_dir: runs

@@ -1,0 +1,24 @@
+{
+  "run_id": "seed-generation",
+  "suite": "generation",
+  "target": "lexical_baseline",
+  "dataset_sha256": "2beace68d1d0c3ca",
+  "git_sha": null,
+  "aggregate": {
+    "generation.answer_token_f1": 0.356136327400782,
+    "generation.citation_precision": 0.25,
+    "generation.citation_recall": 0.6875,
+    "generation.citation_validity": 1.0,
+    "generation.groundedness_lexical": 1.0,
+    "generation.has_citation": 1.0,
+    "generation.must_include": 0.6875,
+    "judge.faithfulness": 1.0,
+    "judge.relevance": 0.4519345238095238,
+    "operational.case_count": 8.0,
+    "operational.error_rate": 0.0,
+    "operational.latency_ms_mean": 0.0655,
+    "operational.latency_ms_p50": 0.0565,
+    "operational.latency_ms_p95": 0.12279999999999995,
+    "operational.latency_ms_max": 0.148
+  }
+}

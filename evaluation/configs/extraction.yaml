@@ -1,0 +1,44 @@
+# 지식그래프 추출 정확도 평가.
+#
+# 정답 트리플은 neo4j-schema.md 6.2절의 관계 allowlist를 따른다.
+# allowlist가 확장되면 데이터셋도 함께 갱신한다.
+
+suite: extraction
+dataset: datasets/extraction/sample.jsonl
+
+target:
+  type: lexical_baseline
+  options:
+    corpus: fixtures/mock_corpus.jsonl
+    top_k: 5
+    citation_count: 3
+
+# 이름 붙인 타깃. `--target http`처럼 이름으로 통째로 교체한다.
+targets:
+  baseline:
+    type: lexical_baseline
+    options:
+      corpus: fixtures/mock_corpus.jsonl
+      top_k: 5
+      citation_count: 3
+  http:
+    type: http_backend
+    options:
+      base_url: ${LINKPAPER_API_URL:-http://localhost:8000}
+      api_prefix: /api/v1
+      timeout_s: 60
+
+baseline: baselines/extraction.json
+
+gates:
+  extraction.triple_f1:
+    min: 0.35
+    max_regression: 0.05
+  extraction.evidence_attachment:
+    min: 0.99
+  operational.error_rate:
+    max: 0.05
+
+run:
+  concurrency: 4
+  output_dir: runs
