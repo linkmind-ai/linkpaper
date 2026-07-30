@@ -64,7 +64,7 @@
 #### Component Diagram
 
 <div align="center">
-  <img src="docs/component_diagram.png" alt="LinkPaper Component Diagram" width="800" />
+  <img src="docs/component_diagram.svg" alt="LinkPaper Component Diagram" width="800" />
 </div>
 
 ---
