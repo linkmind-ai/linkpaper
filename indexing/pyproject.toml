@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "linkpaper-indexing"
+version = "0.1.0"
+description = "LinkPaper 오프라인 인덱싱 모듈 (논문 수집·전처리 및 지식그래프 구축)"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28,<1.0",
+    "langchain-text-splitters>=0.3,<2.0",
+    "pydantic>=2.9,<3.0",
+    "pydantic-settings>=2.7,<3.0",
+    "pymupdf4llm>=0.0.17,<2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9.0",
+]
+
+[project.scripts]
+linkpaper-data-pipeline = "data_pipeline.cli:main"
+
+# Graph Builder와 임베딩·인덱싱 패키지가 추가되면 이 목록에 함께 등록한다.
+[tool.hatch.build.targets.wheel]
+packages = ["data_pipeline"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["data_pipeline/tests"]

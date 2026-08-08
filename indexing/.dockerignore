@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 아키텍처 다이어그램은 이미지 빌드에 필요하지 않다.
+*.png
+README.md
