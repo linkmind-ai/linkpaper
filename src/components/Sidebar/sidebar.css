@@ -1,0 +1,189 @@
+.sidebar {
+  width: 300px;
+  min-width: 300px;
+  height: 100%;
+  background: var(--surface-ivory);
+  border-right: 1px solid var(--border-subtle);
+  padding: 20px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  overflow-y: auto;
+}
+
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 6px;
+}
+.sidebar__brand-mark {
+  font-size: 18px;
+}
+.sidebar__brand-name {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--text-primary);
+}
+
+.sidebar-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  margin-bottom: 8px;
+  padding: 0 2px;
+}
+
+/* --- Paper selector --- */
+.paper-selector {
+  position: relative;
+}
+.paper-selector__trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-white);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 10px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.paper-selector__trigger:hover {
+  border-color: var(--purple-300);
+  box-shadow: var(--shadow-soft);
+}
+.paper-selector__trigger svg {
+  color: var(--purple-500);
+  flex-shrink: 0;
+}
+.paper-selector__trigger .rotate {
+  transform: rotate(180deg);
+}
+.paper-selector__title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paper-selector__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--surface-white);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-panel);
+  padding: 6px;
+  z-index: 30;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.paper-selector__item {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 9px;
+  cursor: pointer;
+}
+.paper-selector__item:hover {
+  background: var(--purple-50);
+}
+.paper-selector__item.is-active {
+  background: var(--purple-100);
+}
+.paper-selector__item-title {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+.paper-selector__item-meta {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+/* --- Mode selector --- */
+.mode-selector__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mode-card {
+  text-align: left;
+  background: var(--surface-white);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 10px 11px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+.mode-card:hover {
+  border-color: var(--purple-300);
+  box-shadow: var(--shadow-soft);
+}
+.mode-card.is-active {
+  background: var(--purple-50);
+  border-color: var(--purple-400);
+}
+.mode-card__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.mode-card__emoji {
+  font-size: 15px;
+  line-height: 1;
+}
+.mode-card__label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.mode-card__desc {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* --- Example questions --- */
+.example-questions__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.example-chip {
+  text-align: left;
+  background: var(--surface-white);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+.example-chip:hover {
+  border-color: var(--purple-400);
+  border-style: solid;
+  color: var(--purple-700);
+  background: var(--purple-50);
+}
