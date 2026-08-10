@@ -149,7 +149,7 @@ JSONL 한 줄이 케이스 하나다. 필드는
       "chunkId": "arxiv:1706.03762:chunk:3:e5f6a7b8",
       "text": "근거 청크 본문",
       "scope": "selected",
-      "retrievalSource": "neo4j_vector",
+      "retrievalSource": "qdrant_vector",
       "rank": 1,
       "score": 0.91,
       "section": "Model Architecture",

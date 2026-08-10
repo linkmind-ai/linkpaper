@@ -8,7 +8,7 @@
 [![LangChain](https://img.shields.io/badge/LangChain-1.3-1C3C3C?style=flat-square&logo=langchain&logoColor=white)](https://github.com/langchain-ai/langchain)
 [![React](https://img.shields.io/badge/React-19.2-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
 [![Vite](https://img.shields.io/badge/Vite-8.1-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vite.dev)
-[![Elasticsearch](https://img.shields.io/badge/Elasticsearch-9.1-005571?style=flat-square&logo=elasticsearch&logoColor=white)](https://elastic.co)
+[![Qdrant](https://img.shields.io/badge/Qdrant-1.18-DC244C?style=flat-square&logo=qdrant&logoColor=white)](https://qdrant.tech)
 [![Neo4j](https://img.shields.io/badge/Neo4j-5.26-4581C3?style=flat-square&logo=neo4j&logoColor=white)](https://neo4j.com)
 [![Docker](https://img.shields.io/badge/Docker-29.6-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
@@ -67,35 +67,23 @@
   <img src="docs/component_diagram.svg" alt="LinkPaper Component Diagram" width="800" />
 </div>
 
+실행 계층은 두 개로 분리한다. `indexing/`은 스케줄에 따라 데이터를
+전처리하고 Neo4j·Qdrant에 적재하는 오프라인 엔진이며, `backend/`는 완성된
+인덱스를 읽어 사용자 검색과 GraphRAG 요청을 처리하는 온라인 API다.
+
 ---
 
 ### 📂 Project Structure
 
 ```text
 linkpaper/
-
-├── backend/
-│   ├── api/
-│   ├── graph/
-│   ├── retrieval/
-│   ├── llm/
-│   └── app/
-│
-├── frontend/
-│   ├── src/
-│   └── public/
-│
-├── docs/
-│   ├── images/
-│   ├── architecture.md
-│   ├── graph-schema.md
-│   ├── evaluation.md
-│   └── api.md
-│
-├── docker/
-│
-├── scripts/
-│
+├── backend/          # 사용자 요청을 처리하는 온라인 FastAPI 서버
+├── indexing/         # 주기 실행 전처리·Neo4j/Qdrant 적재 엔진
+├── evaluation/       # 검색·추출·생성 평가 하네스
+├── frontend/         # 사용자 웹 애플리케이션
+├── docs/             # 요구사항, 데이터·검색 아키텍처와 스키마
+├── scripts/          # 개발·운영 보조 스크립트
+├── docker-compose.yml
 └── README.md
 ```
 
