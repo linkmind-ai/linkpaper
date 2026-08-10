@@ -1,9 +1,6 @@
 // FastAPI StreamingResponse(text/event-stream)에서 내려오는 청크를 파싱합니다.
 // 백엔드 계약(권장): 각 이벤트는 `data: {json}\n\n` 형태의 SSE 라인이며,
 // json 페이로드는 { type: "token" | "citations" | "flow" | "done" | "error", ... } 형태를 갖습니다.
-//
-// async function* 로 구현되어 있어 아래처럼 사용합니다.
-//   for await (const event of parseSSEStream(response.body)) { ... }
 export async function* parseSSEStream(readableStream) {
   const reader = readableStream.getReader();
   const decoder = new TextDecoder("utf-8");
@@ -17,7 +14,6 @@ export async function* parseSSEStream(readableStream) {
       buffer += decoder.decode(value, { stream: true });
 
       let boundary;
-      // SSE 이벤트는 빈 줄(\n\n)로 구분됩니다.
       while ((boundary = buffer.indexOf("\n\n")) !== -1) {
         const rawEvent = buffer.slice(0, boundary);
         buffer = buffer.slice(boundary + 2);

@@ -1,6 +1,5 @@
 .sidebar {
-  width: 300px;
-  min-width: 300px;
+  width: 100%;
   height: 100%;
   background: var(--surface-ivory);
   border-right: 1px solid var(--border-subtle);
@@ -41,126 +40,95 @@
   padding: 0 2px;
 }
 
-/* --- Paper selector --- */
-.paper-selector {
+/* --- arXiv search --- */
+.arxiv-search__input-wrap {
   position: relative;
-}
-.paper-selector__trigger {
-  width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: var(--surface-white);
+}
+.arxiv-search__icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+.arxiv-search__input {
+  width: 100%;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  padding: 10px 10px;
-  font-size: 13px;
+  background: var(--surface-white);
+  padding: 9px 30px;
+  font-size: 12.5px;
   color: var(--text-primary);
-  cursor: pointer;
-  text-align: left;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
-.paper-selector__trigger:hover {
-  border-color: var(--purple-300);
-  box-shadow: var(--shadow-soft);
+.arxiv-search__input:focus {
+  outline: none;
+  border-color: var(--purple-400);
+  box-shadow: var(--shadow-focus);
 }
-.paper-selector__trigger svg {
+.arxiv-search__spinner {
+  position: absolute;
+  right: 10px;
   color: var(--purple-500);
-  flex-shrink: 0;
+  animation: spin 800ms linear infinite;
 }
-.paper-selector__trigger .rotate {
-  transform: rotate(180deg);
-}
-.paper-selector__title {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
-.paper-selector__menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  right: 0;
+.arxiv-search__results {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.arxiv-search__empty {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  padding: 8px 2px;
+}
+
+.arxiv-result {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  text-align: left;
   background: var(--surface-white);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-panel);
-  padding: 6px;
-  z-index: 30;
-  max-height: 280px;
-  overflow-y: auto;
-}
-.paper-selector__item {
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  border-radius: var(--radius-sm);
-  padding: 8px 9px;
+  padding: 9px 10px;
   cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
 }
-.paper-selector__item:hover {
+.arxiv-result:hover {
+  border-color: var(--purple-300);
   background: var(--purple-50);
 }
-.paper-selector__item.is-active {
+.arxiv-result.is-active {
+  border-color: var(--purple-400);
   background: var(--purple-100);
 }
-.paper-selector__item-title {
+.arxiv-result__icon {
+  color: var(--purple-500);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.arxiv-result__title {
   font-size: 12.5px;
   font-weight: 500;
   color: var(--text-primary);
   line-height: 1.4;
 }
-.paper-selector__item-meta {
-  font-size: 11px;
+.arxiv-result__meta {
+  font-size: 10.5px;
   color: var(--text-tertiary);
   margin-top: 2px;
-}
-
-/* --- Mode selector --- */
-.mode-selector__list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.mode-card {
-  text-align: left;
-  background: var(--surface-white);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  padding: 10px 11px;
-  cursor: pointer;
-  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
-}
-.mode-card:hover {
-  border-color: var(--purple-300);
-  box-shadow: var(--shadow-soft);
-}
-.mode-card.is-active {
-  background: var(--purple-50);
-  border-color: var(--purple-400);
-}
-.mode-card__head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.mode-card__emoji {
-  font-size: 15px;
-  line-height: 1;
-}
-.mode-card__label {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-.mode-card__desc {
-  margin: 6px 0 0;
-  font-size: 11.5px;
-  line-height: 1.5;
-  color: var(--text-secondary);
+  font-family: var(--font-mono);
 }
 
 /* --- Example questions --- */

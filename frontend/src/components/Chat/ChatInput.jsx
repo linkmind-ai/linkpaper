@@ -36,7 +36,7 @@ const ChatInput = forwardRef(function ChatInput(_, ref) {
         ref={textareaRef}
         className="chat-input__textarea"
         placeholder="논문에 대해 질문해보세요… (Shift+Enter로 줄바꿈)"
-        rows={3}
+        rows={1}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}

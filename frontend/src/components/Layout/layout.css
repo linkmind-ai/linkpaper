@@ -5,10 +5,71 @@
   overflow: hidden;
 }
 
-@media (max-width: 860px) {
+.app-shell__pane {
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.app-shell__pane--fill {
+  flex: 1 1 0;
+  min-width: 360px;
+}
+
+/* --- Resize handle --- */
+.resize-handle {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  position: relative;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+.resize-handle::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 1px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--border-subtle);
+  transition: background 120ms ease;
+}
+.resize-handle:hover::before,
+.resize-handle:active::before {
+  width: 3px;
+  background: var(--purple-400);
+}
+.resize-handle__grip {
+  width: 3px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  background: var(--purple-200);
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+.resize-handle:hover .resize-handle__grip,
+.resize-handle:active .resize-handle__grip {
+  opacity: 1;
+}
+
+@media (max-width: 1080px) {
   .app-shell {
     flex-direction: column;
     height: auto;
     min-height: 100vh;
+    overflow: visible;
+  }
+  .app-shell__pane {
+    width: 100% !important;
+    min-height: 70vh;
+  }
+  .resize-handle {
+    display: none;
   }
 }

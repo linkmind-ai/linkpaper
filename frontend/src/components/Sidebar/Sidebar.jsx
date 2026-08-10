@@ -1,5 +1,4 @@
-import PaperSelector from "./PaperSelector.jsx";
-import ModeSelector from "./ModeSelector.jsx";
+import ArxivSearch from "./ArxivSearch.jsx";
 import ExampleQuestions from "./ExampleQuestions.jsx";
 import "./sidebar.css";
 
@@ -11,8 +10,7 @@ export default function Sidebar({ onPickExample }) {
         <span className="sidebar__brand-name">LinkPaper</span>
       </div>
 
-      <PaperSelector />
-      <ModeSelector />
+      <ArxivSearch />
       <ExampleQuestions onPick={onPickExample} />
     </aside>
   );

@@ -1,6 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Network } from "lucide-react";
 import GraphCitationPill from "./GraphCitationPill.jsx";
 import FlowStrip from "./FlowStrip.jsx";
 import StreamingCursor from "./StreamingCursor.jsx";
@@ -8,6 +8,7 @@ import "./chat.css";
 
 export default function MessageBubble({ message }) {
   const isUser = message.role === "user";
+  const usedGraphRetriever = !isUser && message.citations?.length > 0;
 
   return (
     <div className={`message-row ${isUser ? "is-user" : "is-assistant"}`}>
@@ -29,10 +30,18 @@ export default function MessageBubble({ message }) {
             {message.flow && <FlowStrip flow={message.flow} />}
 
             {message.citations?.length > 0 && (
-              <div className="citation-row">
-                {message.citations.map((c) => (
-                  <GraphCitationPill key={c.id} citation={c} />
-                ))}
+              <div className="citation-block">
+                {usedGraphRetriever && (
+                  <div className="citation-block__badge">
+                    <Network size={11} />
+                    그래프 검색으로 근거를 함께 찾았어요
+                  </div>
+                )}
+                <div className="citation-row">
+                  {message.citations.map((c) => (
+                    <GraphCitationPill key={c.id} citation={c} />
+                  ))}
+                </div>
               </div>
             )}
           </>

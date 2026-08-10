@@ -1,41 +1,57 @@
 import { create } from "zustand";
-import { streamChat } from "../api/index.js";
+import { streamChat, searchPapers } from "../api/index.js";
 import { useToastStore } from "./useToastStore.js";
 
 let msgIdCounter = 0;
 const nextId = () => `m-${++msgIdCounter}`;
 
+// 백엔드가 단일 파이프라인 안에서 질문을 라우팅하므로, 프론트엔드에도
+// 기능/모드 구분이 없는 단일 대화 스레드만 존재합니다.
 export const useChatStore = create((set, get) => ({
-  papers: [],
-  selectedPaperId: null,
-  mode: "paper-qa",
-  messagesByMode: {
-    "paper-qa": [],
-    "graph-rag-qa": [],
-    "research-flow": [],
-  },
+  // --- arXiv 검색 / 논문 뷰어 ---
+  papers: [], // 최근 검색 결과
+  selectedPaper: null,
+  searchQuery: "",
+  isSearching: false,
+
+  // --- 채팅 (단일 스레드) ---
+  messages: [],
   isStreaming: false,
   abortController: null,
 
-  setPapers: (papers) =>
-    set({ papers, selectedPaperId: papers[0]?.id ?? null }),
+  runSearch: async (query) => {
+    set({ isSearching: true, searchQuery: query });
+    try {
+      const results = await searchPapers(query);
+      set((state) => ({
+        papers: results,
+        // 검색 결과가 바뀌어도 이미 선택된 논문이 결과 안에 있으면 유지
+        selectedPaper:
+          results.find((p) => p.id === state.selectedPaper?.id) ??
+          results[0] ??
+          state.selectedPaper,
+      }));
+    } catch (err) {
+      useToastStore.getState().push({
+        variant: "error",
+        title: "arXiv 검색에 실패했어요",
+        description: "잠시 후 다시 시도해주세요.",
+      });
+      console.error(err);
+    } finally {
+      set({ isSearching: false });
+    }
+  },
 
-  selectPaper: (paperId) => set({ selectedPaperId: paperId }),
+  selectPaper: (paper) => set({ selectedPaper: paper }),
 
-  setMode: (mode) => set({ mode }),
-
-  currentMessages: () => get().messagesByMode[get().mode] ?? [],
-
-  clearCurrentThread: () =>
-    set((state) => ({
-      messagesByMode: { ...state.messagesByMode, [state.mode]: [] },
-    })),
+  clearThread: () => set({ messages: [] }),
 
   sendMessage: async (text) => {
     const trimmed = text.trim();
     if (!trimmed || get().isStreaming) return;
 
-    const { mode, selectedPaperId } = get();
+    const { selectedPaper } = get();
     const userMsg = { id: nextId(), role: "user", content: trimmed };
     const assistantMsg = {
       id: nextId(),
@@ -47,10 +63,7 @@ export const useChatStore = create((set, get) => ({
     };
 
     set((state) => ({
-      messagesByMode: {
-        ...state.messagesByMode,
-        [mode]: [...state.messagesByMode[mode], userMsg, assistantMsg],
-      },
+      messages: [...state.messages, userMsg, assistantMsg],
       isStreaming: true,
     }));
 
@@ -59,30 +72,22 @@ export const useChatStore = create((set, get) => ({
 
     const updateAssistant = (patch) => {
       set((state) => ({
-        messagesByMode: {
-          ...state.messagesByMode,
-          [mode]: state.messagesByMode[mode].map((m) =>
-            m.id === assistantMsg.id ? { ...m, ...patch } : m
-          ),
-        },
+        messages: state.messages.map((m) =>
+          m.id === assistantMsg.id ? { ...m, ...patch } : m
+        ),
       }));
     };
 
     try {
-      const history = get().messagesByMode[mode].filter(
-        (m) => m.status !== "streaming"
-      );
+      const history = get().messages.filter((m) => m.status !== "streaming");
 
       for await (const event of streamChat({
-        paperId: selectedPaperId,
-        mode,
+        paperId: selectedPaper?.id,
         message: trimmed,
         history,
         signal: abortController.signal,
       })) {
-        const current = get().messagesByMode[mode].find(
-          (m) => m.id === assistantMsg.id
-        );
+        const current = get().messages.find((m) => m.id === assistantMsg.id);
         if (!current) break;
 
         if (event.type === "token") {

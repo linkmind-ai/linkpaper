@@ -1,21 +1,15 @@
 import { Sparkles } from "lucide-react";
-import { MOCK_MODES } from "../../data/mockPapers.js";
-import { useChatStore } from "../../store/useChatStore.js";
+import { EXAMPLE_QUESTIONS } from "../../data/mockAssistant.js";
 import "./sidebar.css";
 
 export default function ExampleQuestions({ onPick }) {
-  const mode = useChatStore((s) => s.mode);
-  const current = MOCK_MODES.find((m) => m.id === mode);
-
-  if (!current) return null;
-
   return (
     <div className="example-questions">
       <span className="sidebar-label">
         <Sparkles size={13} /> 예시 질문
       </span>
       <div className="example-questions__list">
-        {current.examples.map((q) => (
+        {EXAMPLE_QUESTIONS.map((q) => (
           <button
             key={q}
             className="example-chip"

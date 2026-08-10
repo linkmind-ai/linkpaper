@@ -7,5 +7,5 @@ import * as mockClient from "./mockClient.js";
 const USE_MOCK = import.meta.env.VITE_USE_MOCK !== "false";
 
 export const streamChat = USE_MOCK ? mockClient.streamChat : realClient.streamChat;
-export const fetchPapers = USE_MOCK ? mockClient.fetchPapers : realClient.fetchPapers;
+export const searchPapers = USE_MOCK ? mockClient.searchPapers : realClient.searchPapers;
 export const isMock = USE_MOCK;
