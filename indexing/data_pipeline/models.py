@@ -5,10 +5,8 @@ NormalizedChunk를 따르되, 이 파이프라인이 실제로 채울 수 있는
 채우지 못하는 값을 `None`으로 남겨두면 Graph Builder가 있는 값과 없는 값을
 구분하지 못하기 때문이다.
 
-4.2의 `pageStart`/`pageEnd`는 제외했다. 본문을 HF Markdown에서 받는 경로에는
-페이지 정보 자체가 없어서, PDF 변환 경로에서만 채워지는 필드가 된다.
-`tokenCount`도 토크나이저를 정해야 의미가 생기므로 임베딩 담당과 합의한 뒤
-추가한다. 지금은 길이 확인용 `char_count`만 둔다.
+청크 길이는 토크나이저에 종속적인 `tokenCount` 대신 현재 문자 기반 청킹과
+일치하는 `char_count`로 기록한다.
 """
 
 from __future__ import annotations

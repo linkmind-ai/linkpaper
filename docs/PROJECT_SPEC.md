@@ -7,11 +7,11 @@ URL : https://github.com/AsyncFuncAI/alphaxiv-open/tree/main
 
 기존 AlphaXIV-Open은 사용자가 입력한 **단일 arXiv 논문**을 대상으로 문서를 처리하고, 해당 논문으로부터 Knowledge Graph를 구축하여 질의응답을 수행한다.
 
-반면 LinkPaper는 **사용자가 arXiv URL을 입력하는 대신 Hugging Face Papers에서 논문을 검색하여 선택**하고, 선택한 논문를 동일한 방식으로 처리하는 동시에 **Hugging Face Papers 전체 논문을 기반으로 구축한 Knowledge Graph**를 함께 활용한다.
+반면 LinkPaper는 **사용자가 arXiv URL을 입력하는 대신 Hugging Face Papers에서 논문을 검색하여 선택**하고, 주기적인 오프라인 인덱싱으로 미리 구축한 **Hugging Face Papers 기반 Knowledge Graph와 Vector Index**를 활용한다.
 
 이를 통해 선택한 논문의 내용뿐만 아니라 관련 논문 간의 인용 관계와 연구 흐름까지 함께 탐색할 수 있는 GraphRAG 서비스를 제공하는 것을 목표로 한다.
 
-프로토타입에서는 AlphaXIV-Open의 기존 문서 처리 및 GraphRAG 기반 질의응답 파이프라인을 최대한 재사용하면서, **전체 논문 기반 Knowledge Graph를 활용한 Retrieval과 관련 논문 탐색 기능**을 중심으로 서비스를 확장한다.
+프로토타입에서는 AlphaXIV-Open의 GraphRAG 기반 질의응답 구조를 참고하되, 문서 처리와 적재는 `indexing/` 오프라인 엔진으로 분리한다. `backend/`는 완성된 인덱스를 읽는 온라인 사용자 API로 동작하며, **전체 논문 기반 Knowledge Graph를 활용한 Retrieval과 관련 논문 탐색 기능**을 중심으로 서비스를 확장한다.
 
 ---
 
@@ -19,36 +19,31 @@ URL : https://github.com/AsyncFuncAI/alphaxiv-open/tree/main
 
 ```mermaid
 graph TD
-    A[Search papers in HF Papers]
-
-    subgraph "AlphaXIV Pipeline"
-        direction TB
-        B[PDF Processing]
-        C[Graph Indexing]
+    subgraph "Periodic Offline Indexing"
+        direction LR
+        S[Schedule] --> H[HF Papers / PDF]
+        H --> P[Data Processing]
+        P --> C[Graph and Vector Indexing]
+        C --> DB[(Neo4j / Qdrant)]
     end
 
-    A --> B
-    B --> C
-
-    D[User Query]
-    A --> D
-
-    E[Query Semantic Mapping]
-    D --> E
-    C
+    A[Search and Select Paper] --> D[User Query]
+    D --> E[Online Query Semantic Mapping]
 
     F{Can the selected paper answer the query?}
     E --> F
 
-    G[Graph Retrieval<br/> from single paper]
+    G[Retrieval from selected paper]
     F -->|Yes| G
 
-    H["Global Graph Retrieval<br/>KG + Vector DB<br/> from huggingface papers"]
-    F -->|No| H
+    R["Global Graph Retrieval<br/>KG + Vector DB<br/> from Hugging Face Papers"]
+    F -->|No| R
 
     I[Response Generation]
     G --> I
-    H --> I
+    R --> I
+    DB --> G
+    DB --> R
 
     J[Return Response]
     I --> J
@@ -60,23 +55,24 @@ graph TD
 
 ### Hugging Face Papers에 등록된 논문 검색
 
-AlphaXIV-Open에서는 사용자가 arXiv URL을 직접 입력하지만, LinkPaper에서는 Hugging Face Papers에서 논문를 검색하는 방식으로 이를 대체한다. 검색된 논문를 입력으로 받아 이후 PDF Processing 파이프라인을 자동으로 수행한다.
+AlphaXIV-Open에서는 사용자가 arXiv URL을 직접 입력하지만, LinkPaper에서는 Hugging Face Papers에서 논문을 검색하는 방식으로 이를 대체한다. 선택한 논문은 현재 서비스 중인 완성 인덱스에서 조회하며 사용자 요청 중 PDF Processing이나 저장소 write를 실행하지 않는다.
 
 **구현 범위**
 
 - Hugging Face Papers API 연동
 - 논문 검색 기능
-- 검색된 논문를 입력으로 PDF Processing 파이프라인 자동 실행
+- 선택 논문의 인덱스 포함 여부 확인과 미적재 상태 안내
 
 ### HuggingFace Papers 지식그래프 구축
 
-HuggingFace Papers에 등록된 전체 논문를 처리하여 GraphRAG에서 활용할 Knowledge Graph를 구축한다. API에서 수집한 메타데이터와 PDF에서 추출한 인용 관계 및 논문 세부 내용을 통합하여 하나의 Knowledge Graph를 생성하고 지속적으로 갱신한다.
+Hugging Face Papers에 등록된 논문을 주기적으로 처리하여 GraphRAG에서 활용할 Knowledge Graph와 Vector Index를 구축한다. API에서 수집한 메타데이터와 PDF에서 추출한 인용 관계 및 논문 세부 내용을 통합하고 배치 단위로 지속적으로 갱신한다.
 
 **구현 범위**
 
 - Hugging Face Papers API 기반 논문 데이터 수집
 - API에서 논문 메타데이터를 수집하고, PDF 본문에서 Citation, Entity 등 관계 정보를 추출
-- 메타데이터, Citation, Entity를 통합한 지식그래프 구축 및 갱신
+- `indexing/`에서 전처리, 임베딩, Neo4j·Qdrant 적재를 주기적으로 실행
+- `backend/`에서는 Neo4j·Qdrant를 읽기 전용으로 조회
 
 ### GraphRAG
 
