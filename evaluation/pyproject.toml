@@ -17,6 +17,25 @@ dependencies = [
 dev = [
     "pytest>=8.3,<9.0",
 ]
+# Qdrant/Neo4j에 직접 붙는 타깃과 적재 명령에 필요하다.
+stores = [
+    "neo4j>=5.26,<7.0",
+    "qdrant-client>=1.12,<2.0",
+]
+# 외부 벤치마크 자동 다운로드에 필요하다. 없으면 수동 배치 안내가 나온다.
+bench = [
+    "datasets>=3.0,<5.0",
+    "huggingface-hub>=0.26,<1.0",
+]
+# ragas 기반 평가셋 생성과 LLM 지표. API 키가 필요하므로 CI 기본값이 아니다.
+ragas = [
+    "ragas>=0.2.14",
+    "openai>=1.40",
+    "langchain-openai>=0.2",
+]
+all = [
+    "linkpaper-eval[dev,stores,bench,ragas]",
+]
 
 [project.scripts]
 linkpaper-eval = "linkpaper_eval.cli:main"

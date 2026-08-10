@@ -35,6 +35,38 @@ jobs:
       - name: Unit and integration tests
         run: pytest -q
 
+  # 벤치마크 준비와 평가셋 생성 경로가 조용히 깨지는 것을 막는다.
+  # 오프라인 픽스처와 결정적 생성기만 쓰므로 API 키와 DB가 필요 없다.
+  benchmark-smoke:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Prepare local benchmark
+        run: linkpaper-eval bench prepare --name linkpaper-local
+
+      - name: Run local benchmark
+        run: |
+          linkpaper-eval bench run \
+            --name linkpaper-local --suite retrieval \
+            --run-id bench-${{ github.run_number }} --quiet
+
+      # 생성 결과 검증에 실패하면 종료 코드 1로 워크플로가 멈춘다.
+      - name: Generate testset offline
+        run: |
+          linkpaper-eval testgen \
+            --source jsonl --corpus fixtures/mock_corpus.jsonl \
+            --engine offline --size 20 \
+            --out runs/generated-${{ github.run_number }}.jsonl
+
   evaluate:
     runs-on: ubuntu-latest
     needs: test

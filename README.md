@@ -90,6 +90,7 @@ linkpaper/
 │   ├── architecture.md
 │   ├── graph-schema.md
 │   ├── evaluation.md
+│   ├── benchmark.md
 │   └── api.md
 │
 ├── docker/

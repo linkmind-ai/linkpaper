@@ -2,3 +2,12 @@
 runs/
 
 # 베이스라인(baselines/)은 게이트 기준이므로 반드시 커밋한다.
+
+# 벤치마크 원본과 변환 결과는 커밋하지 않는다. 라이선스상 재배포가
+# 금지된 데이터셋이 섞이는 것을 막고, 저장소 크기도 지킨다.
+# 재현에 필요한 것은 registry.py의 명세와 manifest.json이다.
+benchmarks/data/
+
+# 생성한 평가셋도 산출물이다. 확정된 데이터셋만 datasets/ 아래로 옮겨
+# 커밋한다.
+datasets/generated/

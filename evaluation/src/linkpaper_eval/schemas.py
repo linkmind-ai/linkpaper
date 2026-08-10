@@ -14,10 +14,14 @@ from pydantic import BaseModel, ConfigDict, Field
 Scope = Literal["selected", "global", "unknown"]
 RetrievalSource = Literal[
     "elasticsearch_bm25",
+    "qdrant_vector",
     "neo4j_vector",
     "neo4j_graph",
     "unknown",
 ]
+# `qdrant_vector`는 벡터 저장소를 Qdrant로 정한 뒤 추가했다. 기존 값을
+# 지우지 않은 이유는 과거 실행 산출물과 백엔드 응답이 아직 그 값을 쓸 수
+# 있기 때문이다. Literal이라 없는 값이 들어오면 검증에서 바로 걸린다.
 
 
 class Triple(BaseModel):
