@@ -28,7 +28,7 @@ evaluation/
 ├── configs/hybrid.yaml              # DB 직결 타깃 설정
 ├── benchmarks/README.md
 ├── datasets/generated/README.md
-├── tests/test_benchmark.py          # 27건 추가 (전부 오프라인)
+├── tests/test_benchmark.py          # 30건 추가 (네트워크·API 키 불필요)
 └── src/linkpaper_eval/
     ├── ragas_runtime.py             # ragas LLM·임베딩 래퍼 (버전 대응)
     ├── stores/                      # Qdrant·Neo4j 연결, 임베딩
@@ -42,6 +42,19 @@ evaluation/
     │   ├── offline_engine.py ragas_engine.py
     │   ├── export.py pipeline.py
     └── targets/graphrag_hybrid.py   # Qdrant + Neo4j 직결 타깃
+```
+
+## 파이썬 버전
+
+`requires-python = ">=3.11"`이고 CI도 3.11로 돈다. 로컬이 3.12 이상이면
+3.12에서 새로 허용된 문법(f-string 표현식 안의 백슬래시, 같은 따옴표 중첩)이
+로컬에서만 통과하고 CI에서 깨진다. 실제로 한 번 겪었고, 전체 테스트를 3.11로
+다시 확인했다.
+
+```bash
+uv venv --python 3.11 .venv311
+.venv311/bin/pip install -e '.[dev,stores]'
+.venv311/bin/pytest -q
 ```
 
 ## 설계에서 지킨 것
@@ -62,7 +75,7 @@ evaluation/
 ```bash
 cd evaluation
 pip install -e '.[dev]'
-pytest -q                                    # 54 passed (기존 27 + 신규 27)
+pytest -q                                    # 57 passed (기존 27 + 신규 30)
 
 linkpaper-eval run --config configs/retrieval.yaml   # 기존 경로 회귀 확인
 linkpaper-eval bench prepare --name linkpaper-local

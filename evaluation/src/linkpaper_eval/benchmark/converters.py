@@ -553,9 +553,10 @@ def convert_local(
 
     corpus_path = raw.get("corpus")
     if corpus_path is None or not corpus_path.exists():
-        raise FileNotFoundError(
-            f"픽스처 코퍼스를 찾을 수 없습니다: {corpus_path or 'raw[\'corpus\']'}"
-        )
+        # 표현식을 f-string 밖에서 만든다. f-string 안의 백슬래시는 3.12부터
+        # 허용되고, 이 프로젝트는 3.11을 지원한다.
+        location = corpus_path if corpus_path is not None else "raw['corpus']"
+        raise FileNotFoundError(f"픽스처 코퍼스를 찾을 수 없습니다: {location}")
 
     chunks = [
         ChunkRecord(

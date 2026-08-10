@@ -29,8 +29,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      # stores를 함께 설치한다. Qdrant 임베디드 모드 테스트가 클라이언트
+      # API 변경(예: search -> query_points)을 잡아 주는데, 드라이버가 없으면
+      # 조용히 skip되어 의미가 없어진다.
       - name: Install
-        run: pip install -e '.[dev]'
+        run: pip install -e '.[dev,stores]'
 
       - name: Unit and integration tests
         run: pytest -q
