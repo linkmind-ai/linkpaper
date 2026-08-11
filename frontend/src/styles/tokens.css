@@ -1,0 +1,48 @@
+:root {
+  /* --- Base surfaces --- */
+  --surface-white: #ffffff;
+  --surface-ivory: #fbf9f4;
+  --surface-ivory-deep: #f4f0e6;
+  --surface-panel: #ffffff;
+
+  /* --- Purple accent scale (hover / focus / toast / active) --- */
+  --purple-50: #f5f2fc;
+  --purple-100: #ece5f9;
+  --purple-200: #d9cdf2;
+  --purple-300: #c2b0e8;
+  --purple-400: #a996dc;
+  --purple-500: #8f7bcb;
+  --purple-600: #7360ac;
+  --purple-700: #5b4b88;
+
+  /* --- Text --- */
+  --text-primary: #2b2735;
+  --text-secondary: #6b6577;
+  --text-tertiary: #9a94a8;
+  --text-on-purple: #ffffff;
+
+  /* --- Borders / lines --- */
+  --border-subtle: #ece7f5;
+  --border-strong: #d9cdf2;
+
+  /* --- Semantic --- */
+  --color-error: #b5495b;
+  --color-error-bg: #fbeef0;
+  --color-success: #4f8a6a;
+
+  /* --- Typography --- */
+  --font-display: "Source Serif 4", "Georgia", serif;
+  --font-body: "Inter", -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", monospace;
+
+  /* --- Elevation --- */
+  --shadow-soft: 0 2px 10px rgba(124, 107, 174, 0.08);
+  --shadow-panel: 0 8px 30px rgba(91, 75, 136, 0.12);
+  --shadow-focus: 0 0 0 3px rgba(169, 150, 220, 0.35);
+
+  /* --- Radius --- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+}

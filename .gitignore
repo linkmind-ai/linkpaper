@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 .env
 .venv/
 __pycache__/
@@ -13,3 +14,10 @@ dist/
 .idea/
 .vscode/
 
+=======
+node_modules
+dist
+.env
+.DS_Store
+*.local
+>>>>>>> bc4cc030e1c00936220d2a157259def10683b3f1
