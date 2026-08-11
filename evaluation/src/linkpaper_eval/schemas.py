@@ -16,7 +16,9 @@ RetrievalSource = Literal[
     "elasticsearch_bm25",
     "qdrant_vector",
     "neo4j_vector",
+    "qdrant_vector",
     "neo4j_graph",
+    "lexical_baseline",
     "unknown",
 ]
 # `qdrant_vector`는 벡터 저장소를 Qdrant로 정한 뒤 추가했다. 기존 값을

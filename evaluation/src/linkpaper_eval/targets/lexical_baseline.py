@@ -135,7 +135,7 @@ class LexicalBaselineTarget(EvalTarget):
                     paper_id=document.get("paper_id"),
                     text=document.get("text", ""),
                     scope=scope,
-                    retrieval_source="elasticsearch_bm25",
+                    retrieval_source="lexical_baseline",
                     rank=rank,
                     score=round(score, 4),
                     section=document.get("section"),
