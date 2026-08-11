@@ -13,9 +13,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 Scope = Literal["selected", "global", "unknown"]
 RetrievalSource = Literal[
-    "elasticsearch_bm25",
-    "neo4j_vector",
+    "qdrant_vector",
     "neo4j_graph",
+    "lexical_baseline",
     "unknown",
 ]
 

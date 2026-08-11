@@ -1,5 +1,4 @@
 class KnowledgeGraphService:
-    """엔티티 추출과 지식 그래프 구축·탐색을 담당한다."""
+    """온라인 요청에서 Neo4j 지식 그래프를 읽고 탐색한다."""
 
     pass
-

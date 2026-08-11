@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     environment: str = "local"
     api_prefix: str = "/api/v1"
     log_level: str = "INFO"
+    qdrant_url: str = "http://localhost:6333"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -22,4 +23,3 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
-

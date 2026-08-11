@@ -11,7 +11,8 @@ indexing/
 ├── pyproject.toml           # 인덱싱 모듈 전체의 의존성
 ├── Dockerfile               # 배치 실행 이미지
 ├── data_pipeline/           # 논문 수집·전처리 (이 문서의 범위)
-└── (graph_builder/)         # 지식그래프 구축·임베딩·벡터 인덱싱 — 예정
+├── graph_builder/           # Neo4j 지식그래프 구축·적재 — 예정
+└── vector_builder/          # 임베딩 생성·Qdrant 벡터 인덱싱 — 예정
 ```
 
 ## Data Pipeline
@@ -94,6 +95,7 @@ with DataPipeline() as pipeline:
 
     for paper in run.papers:
         graph_builder.upsert(paper.metadata, paper.chunks)  # 두현님 담당
+        vector_builder.upsert(paper.metadata, paper.chunks)  # 두현님 담당
 ```
 
 두 실행 모드는 조회 범위만 다르고 논문 처리 로직(`process_paper`)은 완전히
@@ -104,6 +106,7 @@ with DataPipeline() as pipeline:
 for outcome in pipeline.process(papers):
     if outcome.ok:
         graph_builder.upsert(outcome.paper.metadata, outcome.paper.chunks)
+        vector_builder.upsert(outcome.paper.metadata, outcome.paper.chunks)
     else:
         logger.warning("%s 실패: %s", outcome.paper_id, outcome.error)
 ```
@@ -142,9 +145,8 @@ ProcessedPaper(metadata=PaperMetadata, chunks=list[PaperChunk])
 | `is_references` | 참고문헌 섹션에서 나온 청크인지 |
 | `char_count`, `content_hash` | |
 
-4.2의 `pageStart` / `pageEnd`는 넣지 않았다. HF Markdown 경로에는 페이지
-정보가 없어서 PDF 경로에서만 채워지는 필드가 된다. `tokenCount`도 토크나이저를
-정해야 의미가 생기므로 임베딩 담당과 합의한 뒤 추가한다.
+청크 길이는 토크나이저에 종속적인 `tokenCount` 대신 현재 문자 기반 청킹과
+일치하는 `char_count`로 제공한다.
 
 ### 출력 예시
 
@@ -331,5 +333,4 @@ pytest
 | `paper_id` 접두사 | `1706.03762` | neo4j-schema 7.1은 `arxiv:1706.03762`를 쓴다. 적재 시점에 붙일지, 파이프라인이 낼지 (`chunk_id` 형식도 따라간다) |
 | `references` | arXiv base ID 문자열 목록 | 아직 수집 안 된 논문을 `Paper` stub(7.1)으로 만들지, 건너뛸지 |
 | `is_references` 청크 | 플래그만 달아 함께 반환 | 임베딩·벡터 인덱스에서 제외할지. 제외가 전제면 파이프라인에서 아예 빼도 된다 |
-| `tokenCount`, `pageStart`/`pageEnd` | 없음 | 필요하면 토크나이저를 정한 뒤 추가 |
 | 전달 방식 | 객체 (`ProcessedPaper`) | 같은 프로세스면 객체 그대로, 분리하면 JSON |

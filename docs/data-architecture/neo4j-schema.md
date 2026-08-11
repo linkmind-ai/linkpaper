@@ -2,16 +2,17 @@
 
 > 대상 버전: Neo4j 5.26 Community
 
-
 ## 1. 목적
 
 이 문서는 LinkPaper에서 사용하는 Neo4j Labeled Property Graph의 노드,
-관계, 속성, 식별자, 제약조건과 벡터 인덱스를 정의한다.
+관계, 속성, 식별자와 제약조건을 정의한다. 임베딩과 벡터 인덱스는 Qdrant가
+담당하며 Neo4j에는 저장하지 않는다.
 
 이 스키마는 두 검색 범위를 함께 지원한다.
 
 - 선택 논문 범위: 사용자가 선택한 논문의 청크와 엔티티만 검색
-- 글로벌 범위: 사전에 구축한 Hugging Face Papers 코퍼스 전체 검색
+- 글로벌 범위: 사전에 구축한 Hugging Face Papers 코퍼스 검색.
+  MVP 범위는 2026년 7월 배치
 
 두 범위는 별도 데이터베이스로 복제하지 않는다. 동일 `Paper`와 `Chunk`를
 재사용하고 `:GlobalPaper`, `:GlobalChunk` 보조 라벨로 글로벌 코퍼스 포함
@@ -107,25 +108,21 @@ flowchart LR
 
 ### 5.1 Paper
 
-논문 메타데이터와 논문 단위 임베딩을 저장한다. 인용 대상이지만 아직 PDF를
-처리하지 않은 논문도 동일한 라벨을 사용하고 `processingStatus`로 구분한다.
+논문 메타데이터를 저장한다. 인용 대상이지만 아직 PDF를 처리하지 않은 논문도
+동일한 라벨을 사용하고 `processingStatus`로 구분한다.
 
 | 속성 | 타입 | 필수 | 설명 |
 |---|---|---:|---|
 | `paperId` | STRING | Y | 전역 고유 ID. 예: `arxiv:1706.03762` |
 | `arxivId` | STRING | N | 버전을 제외한 arXiv ID |
-| `arxivVersion` | STRING | N | 예: `v2` |
 | `title` | STRING | Y | 논문 제목 |
 | `abstract` | STRING | N | 논문 초록 |
 | `publishedAt` | DATE | N | 최초 공개일 |
-| `source` | STRING | Y | 예: `huggingface`, `arxiv` |
+| `sourceVersion` | STRING | Y | 본문 확보 방식. `hf-markdown` 또는 `pdf-pymupdf4llm` |
 | `sourceUrl` | STRING | N | 원본 메타데이터 URL |
 | `pdfUrl` | STRING | N | PDF URL |
 | `processingStatus` | STRING | Y | `reference_only`, `pending`, `processing`, `completed`, `failed` |
 | `contentHash` | STRING | N | 정규화된 본문 해시 |
-| `embedding` | LIST\<FLOAT\> | N | 제목과 초록 기반 임베딩 |
-| `embeddingModel` | STRING | N | 임베딩 모델 이름 |
-| `embeddingVersion` | STRING | N | 임베딩 설정 버전 |
 | `schemaVersion` | STRING | Y | 그래프 스키마 버전 |
 | `createdAt` | DATETIME | Y | 최초 생성 시각 |
 | `updatedAt` | DATETIME | Y | 최종 갱신 시각 |
@@ -133,7 +130,7 @@ flowchart LR
 #### GlobalPaper
 
 `:GlobalPaper`는 별도 노드 종류가 아니라 글로벌 코퍼스에 포함된 `Paper`에
-추가하는 보조 라벨이다.
+추가하는 보조 라벨이다. MVP에서는 2026년 7월 배치 논문에 부여한다.
 
 ```text
 (:Paper:GlobalPaper)
@@ -163,17 +160,12 @@ flowchart LR
 | 속성 | 타입 | 필수 | 설명 |
 |---|---|---:|---|
 | `chunkId` | STRING | Y | 전역 고유 청크 ID |
-| `paperId` | STRING | Y | 소속 논문 ID. Elasticsearch join key로도 사용 |
+| `paperId` | STRING | Y | 소속 논문 ID. Qdrant payload join key로도 사용 |
 | `chunkIndex` | INTEGER | Y | 논문 내 순서, 0부터 시작 |
 | `text` | STRING | Y | 정규화된 청크 본문 |
 | `section` | STRING | N | 섹션 제목 |
-| `pageStart` | INTEGER | N | 시작 페이지 |
-| `pageEnd` | INTEGER | N | 끝 페이지 |
-| `tokenCount` | INTEGER | N | 청크 토큰 수 |
+| `charCount` | INTEGER | Y | 청크 문자 수 |
 | `contentHash` | STRING | Y | 청크 본문 해시 |
-| `embedding` | LIST\<FLOAT\> | Y | 청크 임베딩 |
-| `embeddingModel` | STRING | Y | 임베딩 모델 이름 |
-| `embeddingVersion` | STRING | Y | 임베딩 설정 버전 |
 | `createdAt` | DATETIME | Y | 최초 생성 시각 |
 | `updatedAt` | DATETIME | Y | 최종 갱신 시각 |
 
@@ -185,8 +177,8 @@ flowchart LR
 (:Chunk:GlobalChunk)
 ```
 
-글로벌 벡터 인덱스는 이 라벨만 대상으로 한다. 선택 논문 검색은
-`paperId`로 청크를 먼저 제한한 후 exact cosine similarity를 계산한다.
+이 라벨은 Neo4j 그래프 탐색 범위를 제한하는 데 사용한다. Qdrant에서는
+`in_global_corpus` payload로 같은 범위를 표현한다.
 
 ### 5.4 Entity
 
@@ -200,8 +192,6 @@ flowchart LR
 | `entityType` | STRING | Y | 세부 엔티티 타입과 동일한 값 |
 | `description` | STRING | N | 정규화된 설명 |
 | `aliases` | LIST\<STRING\> | N | 다른 이름과 약어 |
-| `embedding` | LIST\<FLOAT\> | N | 엔티티 설명 임베딩. MVP에서는 선택 사항 |
-| `embeddingModel` | STRING | N | 임베딩 모델 이름 |
 | `createdAt` | DATETIME | Y | 최초 생성 시각 |
 | `updatedAt` | DATETIME | Y | 최종 갱신 시각 |
 
@@ -285,8 +275,9 @@ arXiv 논문: arxiv:<base-arxiv-id>
 식별 전 참고문헌: ref:<normalized-citation-hash>
 ```
 
-arXiv 버전은 `paperId`에 넣지 않고 `arxivVersion`으로 관리한다. 새 버전을
-수집하면 기존 `Paper`를 갱신하고 본문 변경 여부를 `contentHash`로 판단한다.
+arXiv 버전은 `paperId`에 넣지 않는다. 새 버전을 수집하면 기존 `Paper`를
+갱신하고 본문 변경 여부를 `contentHash`로 판단한다. MVP에서는 버전 값을
+별도 속성으로 저장하지 않는다.
 `ref:` ID는 참고문헌을 아직 arXiv 또는 HF 식별자와 연결하지 못했을 때만
 사용한다. 이후 실제 논문을 식별하면 관계를 canonical `paperId`로 이전하고
 임시 노드를 제거하는 resolution 작업을 수행한다.
@@ -372,7 +363,7 @@ FOR (e:Entity) ON (e.normalizedName);
 ```
 
 엔티티 해소 후보 검색을 위한 full-text index는 선택적으로 사용한다.
-일반 사용자 전문 검색은 Elasticsearch가 담당한다.
+이 인덱스는 내부 엔티티 해소용이며 사용자 청크 검색은 Qdrant가 담당한다.
 
 ```cypher
 CREATE FULLTEXT INDEX entity_lookup IF NOT EXISTS
@@ -380,42 +371,21 @@ FOR (e:Entity)
 ON EACH [e.name, e.normalizedName, e.aliases, e.description];
 ```
 
-## 9. 벡터 인덱스
+## 9. Qdrant 연동 경계
 
-벡터 차원은 최종 임베딩 모델과 반드시 일치해야 한다. 아래 `1536`은 예시이며
-모델 확정 후 migration에서 교체한다.
+Neo4j에는 임베딩과 벡터 인덱스를 만들지 않는다. 청크 임베딩은 Qdrant의
+`linkpaper_chunks_v1` 컬렉션에 저장하고, 두 저장소는 `paperId`와 `chunkId`로
+연결한다.
 
-### 9.1 글로벌 청크 인덱스
+| Neo4j | Qdrant |
+|---|---|
+| `Chunk.chunkId` | payload `chunk_id` |
+| `Chunk.paperId` | payload `paper_id` |
+| `GlobalChunk` 라벨 | payload `in_global_corpus=true` |
 
-```cypher
-CREATE VECTOR INDEX global_chunk_embedding IF NOT EXISTS
-FOR (c:GlobalChunk)
-ON (c.embedding)
-OPTIONS {
-  indexConfig: {
-    `vector.dimensions`: 1536,
-    `vector.similarity_function`: 'cosine'
-  }
-};
-```
-
-### 9.2 글로벌 논문 인덱스
-
-제목과 초록 기반 관련 논문 검색이 필요하면 사용한다.
-
-```cypher
-CREATE VECTOR INDEX global_paper_embedding IF NOT EXISTS
-FOR (p:GlobalPaper)
-ON (p.embedding)
-OPTIONS {
-  indexConfig: {
-    `vector.dimensions`: 1536,
-    `vector.similarity_function`: 'cosine'
-  }
-};
-```
-
-엔티티 임베딩 인덱스는 MVP 검색 요구와 평가 결과를 확인한 뒤 추가한다.
+Qdrant point ID는 `uuid5(NAMESPACE_URL, "linkpaper:chunk:" + chunkId)`로 생성한다.
+벡터와 payload 세부 스키마는
+[Data & Retrieval Architecture](./data-retrieval-architecture.md)를 기준으로 한다.
 
 ## 10. 적재 규칙
 
@@ -427,8 +397,8 @@ ON CREATE SET p.createdAt = datetime()
 SET p.title = $title,
     p.abstract = $abstract,
     p.arxivId = $arxivId,
-    p.arxivVersion = $arxivVersion,
-    p.source = $source,
+    p.publishedAt = $publishedAt,
+    p.sourceVersion = $sourceVersion,
     p.sourceUrl = $sourceUrl,
     p.pdfUrl = $pdfUrl,
     p.processingStatus = $processingStatus,
@@ -450,13 +420,8 @@ SET c.paperId = $paperId,
     c.chunkIndex = chunk.chunkIndex,
     c.text = chunk.text,
     c.section = chunk.section,
-    c.pageStart = chunk.pageStart,
-    c.pageEnd = chunk.pageEnd,
-    c.tokenCount = chunk.tokenCount,
+    c.charCount = chunk.charCount,
     c.contentHash = chunk.contentHash,
-    c.embedding = chunk.embedding,
-    c.embeddingModel = chunk.embeddingModel,
-    c.embeddingVersion = chunk.embeddingVersion,
     c.updatedAt = datetime()
 MERGE (p)-[:HAS_CHUNK]->(c);
 ```
@@ -474,42 +439,22 @@ Cypher 관계 타입을 사용자 입력이나 LLM 출력에서 문자열로 직
 
 ## 11. 검색 예시
 
-### 11.1 선택 논문 exact vector 검색
+### 11.1 Qdrant 후보의 그래프 확장
 
-Neo4j 5.26에서 먼저 논문 범위를 제한하고 각 청크의 코사인 유사도를 계산한다.
-
-```cypher
-MATCH (:Paper {paperId: $paperId})-[:HAS_CHUNK]->(c:Chunk)
-WHERE c.embedding IS NOT NULL
-WITH c, vector.similarity.cosine(c.embedding, $queryEmbedding) AS score
-RETURN c.chunkId AS chunkId,
-       c.text AS text,
-       c.section AS section,
-       c.pageStart AS pageStart,
-       score
-ORDER BY score DESC
-LIMIT $topK;
-```
-
-### 11.2 글로벌 벡터 검색
+Qdrant가 반환한 청크 ID를 Neo4j에 전달하여 연결된 엔티티와 논문을 탐색한다.
 
 ```cypher
-CALL db.index.vector.queryNodes(
-  'global_chunk_embedding',
-  $candidateK,
-  $queryEmbedding
-)
-YIELD node AS c, score
-MATCH (p:Paper)-[:HAS_CHUNK]->(c)
-RETURN p.paperId AS paperId,
-       c.chunkId AS chunkId,
-       c.text AS text,
-       score
-ORDER BY score DESC
-LIMIT $topK;
+UNWIND $chunkIds AS chunkId
+MATCH (c:Chunk {chunkId: chunkId})-[:MENTIONS]->(e:Entity)
+OPTIONAL MATCH (otherChunk:Chunk)-[:MENTIONS]->(e)
+OPTIONAL MATCH (otherPaper:Paper)-[:HAS_CHUNK]->(otherChunk)
+RETURN c.chunkId AS seedChunkId,
+       collect(DISTINCT e.entityId) AS entityIds,
+       collect(DISTINCT otherPaper.paperId) AS relatedPaperIds
+LIMIT $limit;
 ```
 
-### 11.3 인용 관계 확장
+### 11.2 인용 관계 확장
 
 ```cypher
 MATCH (p:Paper {paperId: $paperId})-[:CITES*1..2]->(related:Paper)
@@ -518,7 +463,7 @@ RETURN DISTINCT related.paperId AS paperId,
 LIMIT $limit;
 ```
 
-### 11.4 청크에서 엔티티와 관련 논문 탐색
+### 11.3 청크에서 엔티티와 관련 논문 탐색
 
 ```cypher
 MATCH (c:Chunk {chunkId: $chunkId})-[:MENTIONS]->(e:Entity)
@@ -542,7 +487,7 @@ LIMIT $limit;
 - 모든 `GlobalChunk`는 `GlobalPaper`에 속한다.
 - 모든 의미 관계의 predicate와 노드 패턴은 allowlist에 포함된다.
 - 모든 추출 관계는 존재하는 `paperId`와 `chunkId`를 근거로 갖는다.
-- 임베딩 벡터의 차원과 모델 버전은 인덱스 정의와 일치한다.
+- 모든 Qdrant point의 payload `chunk_id`는 Neo4j의 `Chunk.chunkId`와 연결된다.
 - `reference_only` 논문에는 청크가 없어도 되지만 `completed` 논문에는 청크가 있어야 한다.
 
 ## 13. 스키마 변경
@@ -552,8 +497,9 @@ LIMIT $limit;
 1. `schemaVersion`을 증가시킨다.
 2. migration 또는 재적재 스크립트를 추가한다.
 3. 기존 Cypher 검색 도구와 평가 코드의 호환성을 확인한다.
-4. Elasticsearch mapping과 공통 ID 계약의 영향을 확인한다.
-5. 대표 논문 10편을 재적재하여 노드·관계 수와 검색 결과를 비교한다.
+4. Qdrant collection·payload schema와 공통 ID 계약의 영향을 확인한다.
+5. 대표 논문 일부로 smoke test를 수행한 뒤 2026-07 Month 전체 코퍼스를
+   배치 적재하여 노드·관계 수와 검색 결과를 비교한다.
 
 새 엔티티 또는 관계 타입은 다음 조건을 만족할 때 추가한다.
 
@@ -562,20 +508,11 @@ LIMIT $limit;
 - 추출 및 평가 기준을 만들 수 있다.
 - 기존 타입과 의미가 중복되지 않는다.
 
-## 14. 미결정 사항
 
-- 임베딩 모델과 벡터 차원
-- 청크 크기, overlap 및 섹션 경계 정책
-- 초기 semantic relation allowlist의 최종 범위
-- 한국어 질의를 위한 임베딩 또는 번역 정책
-- 엔티티 해소 모델 및 confidence threshold
-- 의미 관계의 최소 confidence threshold
-- 논문 버전 변경 시 과거 청크 보존 여부
-- Neo4j GraphRAG Python 패키지의 실험적 KG Builder 사용 여부
-
-## 15. 참고 자료
+## 14. 참고 자료
 
 - [Neo4j Graph Database Concepts](https://neo4j.com/docs/getting-started/appendix/graphdb-concepts/)
 - [Neo4j GraphRAG Knowledge Graph Builder](https://neo4j.com/docs/neo4j-graphrag-python/current/user_guide_kg_builder.html)
-- [Neo4j Vector Indexes](https://neo4j.com/docs/cypher-manual/5/indexes/semantic-indexes/vector-indexes/)
 - [Neo4j Full-text Indexes](https://neo4j.com/docs/cypher-manual/5/indexes/semantic-indexes/full-text-indexes/)
+- [Qdrant Documentation](https://qdrant.tech/documentation/)
+- [Qwen3 Embedding](https://github.com/QwenLM/Qwen3-Embedding)
