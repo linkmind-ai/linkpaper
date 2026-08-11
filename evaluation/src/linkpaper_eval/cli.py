@@ -3,6 +3,8 @@
     python -m linkpaper_eval run --config configs/retrieval.yaml
     python -m linkpaper_eval run --config configs/retrieval.yaml --target http
     python -m linkpaper_eval baseline --config configs/retrieval.yaml --run-id <id>
+    python -m linkpaper_eval bench prepare --name qasper
+    python -m linkpaper_eval testgen --source neo4j --engine ragas --size 50
 
 의존성을 늘리지 않으려고 argparse만 사용한다.
 """
@@ -70,11 +72,25 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser.add_argument("--config", required=True)
     show_parser.add_argument("--run-id", required=True)
 
+    # 벤치마크와 평가셋 생성 명령은 별도 패키지에서 등록한다. 위 세 명령의
+    # 동작에는 영향이 없고, 등록이 실패해도 기존 명령은 그대로 쓸 수 있다.
+    try:
+        from linkpaper_eval.benchmark.cli import register as register_extras
+
+        register_extras(subparsers)
+    except Exception as exc:  # noqa: BLE001 - 부가 명령이 핵심 경로를 막지 않는다
+        print(f"부가 명령을 등록하지 못했습니다: {exc}", file=sys.stderr)
+
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    # 부가 명령은 서브파서가 handler를 직접 지정한다.
+    handler = getattr(args, "handler", None)
+    if handler is not None:
+        return handler(args)
 
     if args.command == "run":
         return _command_run(args)

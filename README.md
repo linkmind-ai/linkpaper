@@ -77,6 +77,30 @@
 
 ```text
 linkpaper/
+
+├── backend/
+│   ├── api/
+│   ├── graph/
+│   ├── retrieval/
+│   ├── llm/
+│   └── app/
+│
+├── frontend/
+│   ├── src/
+│   └── public/
+│
+├── docs/
+│   ├── images/
+│   ├── architecture.md
+│   ├── graph-schema.md
+│   ├── evaluation.md
+│   ├── benchmark.md
+│   └── api.md
+│
+├── docker/
+│
+├── scripts/
+│
 ├── backend/          # 사용자 요청을 처리하는 온라인 FastAPI 서버
 ├── indexing/         # 주기 실행 전처리·Neo4j/Qdrant 적재 엔진
 ├── evaluation/       # 검색·추출·생성 평가 하네스
