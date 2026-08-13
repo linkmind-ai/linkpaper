@@ -10,9 +10,11 @@ API 이미지에 딸려 들어가면 안 되기 때문이다.
 indexing/
 ├── pyproject.toml           # 인덱싱 모듈 전체의 의존성
 ├── Dockerfile               # 배치 실행 이미지
-├── data_pipeline/           # 논문 수집·전처리 (이 문서의 범위)
-├── graph_builder/           # Neo4j 지식그래프 구축·적재 — 예정
-└── vector_builder/          # 임베딩 생성·Qdrant 벡터 인덱싱 — 예정
+├── data_pipeline/           # 논문 수집·전처리
+├── graph_builder/           # Neo4j 구조 그래프 구축·적재
+├── vector_builder/          # 임베딩 생성·Qdrant 벡터 인덱싱
+├── indexing_common/         # JSON 입력 계약, 공통 ID와 설정
+└── indexing_job/            # paper/daily/base 실행 및 적재 순서 조율
 ```
 
 ## Data Pipeline
@@ -49,6 +51,21 @@ python -m data_pipeline base --month 2026-08        # 베이스 코퍼스 (해�
 중간 산출물(PDF, Markdown)을 파일로 남기는 기능은 없다. PDF는 변환 직후
 삭제되는 임시 디렉터리에만 존재한다.
 
+전처리부터 Neo4j·Qdrant 적재까지 실행하려면 통합 Job을 사용한다.
+
+```bash
+python -m indexing_job paper 1706.03762
+python -m indexing_job daily --date 2026-08-08
+python -m indexing_job base --month 2026-07
+```
+
+`base`는 자동으로 글로벌 코퍼스로 적재한다. `paper`와 `daily`는 기본적으로
+선택 논문 범위이며 필요할 때만 `--global-corpus`를 사용한다. 모든 모드는
+논문별로 **Neo4j → Qdrant** 순서로 실행한다.
+호스트에서 실행할 때는 `NEO4J_URI=bolt://localhost:7687`,
+`QDRANT_URL=http://localhost:6333`을 사용하고 Compose 내부 주소는 서비스가
+자동으로 `neo4j`, `qdrant`로 덮어쓴다.
+
 ## Docker
 
 서버가 아니라 실행하고 끝나는 Job이다. 하위 명령을 인자로 받는다.
@@ -56,19 +73,19 @@ python -m data_pipeline base --month 2026-08        # 베이스 코퍼스 (해�
 ```bash
 docker build -t linkpaper-indexing ./indexing
 
-docker run --rm linkpaper-indexing paper 1706.03762
-docker run --rm linkpaper-indexing daily --date 2026-08-08
-docker run --rm linkpaper-indexing base --month 2026-08 --limit 10
-docker run --rm -e INDEXING_CHUNK_SIZE=800 linkpaper-indexing daily
+docker compose run --rm indexing paper 1706.03762
+docker compose run --rm indexing daily --date 2026-08-08
+docker compose run --rm indexing base --month 2026-07 --limit 10
 ```
 
 인자 없이 실행하면 오늘의 Daily Papers를 처리한다(`CMD ["daily"]`). 백엔드
 이미지와 달리 포트를 열지 않고, 외부 PDF를 네이티브 파서로 여는 컨테이너라
 non-root(`indexing`)로 실행한다. 임시 PDF는 `/tmp`에만 쓴다.
 
-`docker-compose.yml`에는 넣지 않았다. 배치는 실행 후 종료하므로 compose의
-상시 서비스와 수명주기가 다르다. 스케줄러 붙이는 시점에 cron·Job으로
-연결하는 편이 맞다.
+Compose의 `indexing`은 `jobs` 프로필을 사용하므로 일반 `docker compose up`에는
+포함되지 않는다. 명시적인 `docker compose run` 또는 추후 cron·Job에서만
+실행되는 일회성 프로세스다. 전처리 결과만 확인하려면 이미지의 entrypoint를
+`python -m data_pipeline`로 덮어쓴다.
 
 빌드에 컴파일러가 필요하지 않다(PyMuPDF는 manylinux wheel). 이미지 크기는
 약 480MB이며 대부분 PyMuPDF와 onnxruntime이다.
@@ -81,38 +98,20 @@ non-root(`indexing`)로 실행한다. 임시 PDF는 `/tmp`에만 쓴다.
 
 ## Job 인터페이스
 
-주기 실행 스케줄러는 이 모듈에 없다. 외부 Job이 아래를 호출한다.
+주기 실행 스케줄러는 이 모듈에 없다. 외부 Job은 `IndexingJob`을 호출한다.
 
 ```python
-from data_pipeline import DataPipeline
+from indexing_job import IndexingJob
 
-with DataPipeline() as pipeline:
-    # 베이스 구축: 이번 달 전체
-    run = pipeline.run_base_corpus()
-
-    # 최신화: 오늘의 Daily Papers
-    run = pipeline.run_daily_papers()
-
-    for paper in run.papers:
-        graph_builder.upsert(paper.metadata, paper.chunks)  # 두현님 담당
-        vector_builder.upsert(paper.metadata, paper.chunks)  # 두현님 담당
+with IndexingJob() as job:
+    run = job.paper("1706.03762")
+    run = job.daily()
+    run = job.base(2026, 7)
 ```
 
-두 실행 모드는 조회 범위만 다르고 논문 처리 로직(`process_paper`)은 완전히
-같다. 결과를 메모리에 쌓지 않고 흘려보내려면 `process()`가 결과를 하나씩
-내보낸다.
-
-```python
-for outcome in pipeline.process(papers):
-    if outcome.ok:
-        graph_builder.upsert(outcome.paper.metadata, outcome.paper.chunks)
-        vector_builder.upsert(outcome.paper.metadata, outcome.paper.chunks)
-    else:
-        logger.warning("%s 실패: %s", outcome.paper_id, outcome.error)
-```
-
-한 편의 실패는 그 편에서 끝난다. 배치는 계속 진행되고, 실패는
-`PipelineRun.failures`에 `paper_id` / `stage` / `error`로 남는다.
+세 모드는 조회 범위만 다르고 같은 전처리와 적재 코드를 사용한다. 한 편의
+실패는 그 편에서 끝나며 `IndexingRun.failures`에 `paper_id`, `stage`, `error`로
+남는다. Neo4j가 실패한 논문에는 Qdrant write를 실행하지 않는다.
 
 ## 출력 스키마
 
@@ -305,10 +304,30 @@ PDF 변환 52청크로 양쪽 모두 같은 16건의 references를 추출한다.
 | `INDEXING_CHUNK_SIZE` / `_OVERLAP` | 1200 / 150 | 청크 크기 (문자 수) |
 | `INDEXING_LOG_LEVEL` | INFO | |
 
+저장소와 임베딩 builder는 다음 설정을 사용한다.
+
+| 변수 | 기본값 | 용도 |
+|---|---|---|
+| `NEO4J_URI` / `NEO4J_USERNAME` / `NEO4J_PASSWORD` | localhost / neo4j | 그래프 연결 |
+| `NEO4J_DATABASE` | `neo4j` | 적재 대상 database |
+| `QDRANT_URL` | `http://localhost:6333` | 벡터 저장소 연결 |
+| `QDRANT_COLLECTION` | `linkpaper_chunks_v1` | 청크 collection |
+| `LINKPAPER_EMBEDDING_PROVIDER` | `hash` | `hash`는 연결 검증용, `openai`는 품질용 |
+| `LINKPAPER_EMBEDDING_MODEL` / `_DIMENSIONS` | `text-embedding-3-small` / 1536 | 임베딩 모델과 차원 |
+| `LINKPAPER_EMBEDDING_VERSION` | `v1` | 재색인 판단 버전 |
+| `INDEXING_INCLUDE_REFERENCE_CHUNKS` | `false` | 참고문헌 청크의 Qdrant 포함 여부 |
+
+기본 `hash` 임베더는 API 키 없이 배관과 멱등성을 검증하기 위한 것이며 실제
+의미 검색 품질을 대표하지 않는다. 운영 적재 전 provider·model·dimension을
+확정하고 같은 설정을 온라인 질의 임베딩에도 사용해야 한다.
+
 ## 테스트
 
 ```bash
 pytest
+
+# 실행 중인 로컬 Neo4j·Qdrant에 테스트 데이터를 넣고 즉시 정리하는 opt-in 검사
+RUN_STORE_INTEGRATION=1 pytest -q indexing_job/tests/test_store_integration.py
 ```
 
 외부 API는 `httpx.MockTransport`로, PDF 변환은 주입한 대역 함수로 대체한다.
@@ -326,11 +345,12 @@ pytest
 - `--limit`은 처리 편수만 제한한다. 목록 조회는 그대로 수행한다.
 - 참고문헌에 arXiv ID가 없는 논문은 `references`가 빈 목록이 된다.
 
-## Graph Builder와 정할 것
+## Builder 확정 정책
 
-| 항목 | 현재 | 정해야 하는 것 |
-|---|---|---|
-| `paper_id` 접두사 | `1706.03762` | neo4j-schema 7.1은 `arxiv:1706.03762`를 쓴다. 적재 시점에 붙일지, 파이프라인이 낼지 (`chunk_id` 형식도 따라간다) |
-| `references` | arXiv base ID 문자열 목록 | 아직 수집 안 된 논문을 `Paper` stub(7.1)으로 만들지, 건너뛸지 |
-| `is_references` 청크 | 플래그만 달아 함께 반환 | 임베딩·벡터 인덱스에서 제외할지. 제외가 전제면 파이프라인에서 아예 빼도 된다 |
-| 전달 방식 | 객체 (`ProcessedPaper`) | 같은 프로세스면 객체 그대로, 분리하면 JSON |
+| 항목 | 정책 |
+|---|---|
+| `paper_id` 접두사 | builder가 저장 직전에 `arxiv:` 또는 `hf:`를 붙인다 |
+| `references` | 미수집 인용 논문을 `processingStatus=reference_only` Paper stub으로 만든다 |
+| `CITES` 근거 | MVP는 속성 없는 관계로 만들고 참고문헌 원문은 Chunk에 보존한다 |
+| `is_references` 청크 | Neo4j에는 저장하고 Qdrant에서는 기본 제외한다 |
+| 전달 방식 | 같은 프로세스는 `ProcessedPaper`, 분리 실행은 동일 계약의 JSON을 사용한다 |

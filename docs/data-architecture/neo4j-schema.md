@@ -118,7 +118,7 @@ flowchart LR
 | `title` | STRING | Y | 논문 제목 |
 | `abstract` | STRING | N | 논문 초록 |
 | `publishedAt` | DATE | N | 최초 공개일 |
-| `sourceVersion` | STRING | Y | 본문 확보 방식. `hf-markdown` 또는 `pdf-pymupdf4llm` |
+| `sourceVersion` | STRING | N | 본문 확보 방식. 처리 완료 논문은 필수이며 `hf-markdown` 또는 `pdf-pymupdf4llm`. `reference_only` stub에는 없음 |
 | `sourceUrl` | STRING | N | 원본 메타데이터 URL |
 | `pdfUrl` | STRING | N | PDF URL |
 | `processingStatus` | STRING | Y | `reference_only`, `pending`, `processing`, `completed`, `failed` |
@@ -224,6 +224,10 @@ flowchart LR
 `CITES`의 목적 논문을 완전히 수집하지 못해도 `processingStatus=reference_only`인
 `Paper` stub을 생성한다. 해당 논문을 나중에 처리할 때 같은 `paperId`로
 upsert하여 기존 인용 관계를 유지한다.
+
+MVP 입력의 `references`는 arXiv ID 목록이므로 `CITES`는 속성 없이 생성한다.
+참고문헌 원문은 `Chunk.text`에 보존하며, 인용 ID와 개별 참고문헌 항목의 매핑을
+추가한 이후에만 `referenceText` 등의 관계 속성을 사용한다.
 
 ### 6.2 의미 관계 allowlist
 

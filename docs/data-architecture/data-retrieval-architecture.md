@@ -60,7 +60,7 @@ flowchart LR
         NORMAL[Normalized Paper]
         ER[Entity and Relation Extraction]
         RESOLVE[Entity Resolution]
-        EMBED[Qwen3 Chunk<br/>Embedding Generation] *Qwen3 선택사항
+        EMBED[Configurable Chunk<br/>Embedding Generation]
     end
 
     subgraph Stores[Serving Stores]
@@ -131,7 +131,35 @@ contentHash
 전달 JSON에서는 각각 `source_version`, `published_at`, `char_count`로
 직렬화한다. `source_version`은 `hf-markdown` 또는 `pdf-pymupdf4llm`이다.
 
-### 4.3 전달 계약 및 구현 책임
+### 4.3 Qdrant Point
+
+컬렉션은 `linkpaper_chunks_v1`, 거리 함수는 Cosine을 사용한다. point ID는
+`uuid5(NAMESPACE_URL, "linkpaper:chunk:" + chunkId)`로 결정적으로 생성한다.
+payload는 다음 필드를 사용한다.
+
+```text
+chunk_id
+paper_id
+chunk_index
+text
+section
+char_count
+content_hash
+title
+published_at
+source_version
+in_global_corpus
+embedding_provider
+embedding_model
+embedding_dimension
+embedding_version
+```
+
+`paper_id`, `chunk_id`, `in_global_corpus`에는 payload index를 생성한다.
+참고문헌 청크는 Neo4j에 보존하되 기본 Qdrant 임베딩 대상에서는 제외한다.
+`INDEXING_INCLUDE_REFERENCE_CHUNKS=true`일 때만 포함한다.
+
+### 4.4 전달 계약 및 구현 책임
 
 `NormalizedPaper`와 `NormalizedChunk`는 데이터 파이프라인의 출력이자 그래프
 빌더의 입력 계약이다. 데이터 파이프라인이 PDF 파싱과 청킹을 완료하므로 그래프
@@ -310,7 +338,7 @@ Neo4j와 Qdrant 사이에 분산 트랜잭션을 사용하지 않는다. 대신 
 |---|---|
 | `schemaVersion` | 노드·관계 스키마 버전 |
 | `sourceVersion` | 본문 확보 경로와 전처리 방식 |
-| `embeddingProvider` | 임베딩 실행 주체. 초기값은 `local`, API 전환 시 `openai` |
+| `embeddingProvider` | 임베딩 실행 주체. `hash`는 연결 검증용, 운영 품질 모델은 별도 확정 |
 | `embeddingModel` | 임베딩 모델 이름 |
 | `embeddingDimension` | 벡터 인덱스와 일치해야 하는 임베딩 차원 |
 | `embeddingVersion` | 임베딩 파라미터 및 전처리 버전 |
