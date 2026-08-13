@@ -21,6 +21,23 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  indexing:
+    build:
+      context: ./indexing
+    profiles: ["jobs"]
+    env_file:
+      - .env
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      QDRANT_URL: http://qdrant:6333
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    # 일회성 오프라인 Job이라 명시적으로 `docker compose run`할 때만 실행한다.
+    command: ["daily"]
+
   neo4j:
     image: neo4j:5.26-community
     environment:
