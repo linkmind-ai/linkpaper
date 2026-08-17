@@ -11,6 +11,11 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
     openai_chat_model: str = "gpt-5.6-luna"
+    hf_base_url: str = "https://huggingface.co"
+    hf_timeout_seconds: float = 30.0
+    online_chunk_size: int = 2000
+    online_chunk_overlap: int = 200
+    online_retrieval_limit: int = 5
 
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_username: str = "neo4j"

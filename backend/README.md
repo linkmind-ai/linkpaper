@@ -28,12 +28,15 @@ backend/
 현재 생성된 라우트는 다음과 같다.
 
 - `GET /api/v1/health`
+- `POST /api/v1/chat/stream`
 - `GET /api/v1/papers`
 - `POST /api/v1/papers/{paper_id}/analysis`
 - `POST /api/v1/conversations/{conversation_id}/messages`
 
-헬스 체크를 제외한 라우트는 아직 구현 전이므로 `501 Not Implemented`를
-반환한다.
+`chat/stream`은 온라인 단일 논문 RAG와 OpenAI SSE 생성을 제공한다. 개발 범위,
+테스트 방법과 향후 GraphRAG 계획은
+[`docs/pipeline-development.md`](../docs/pipeline-development.md)를 참고한다.
+논문 검색·분석과 conversation 라우트는 아직 `501 Not Implemented`를 반환한다.
 
 ### Pipelines
 
@@ -48,13 +51,12 @@ PaperAnalysisPipeline
 └── GenerationService
 
 QuestionAnsweringPipeline
-├── ConversationService
-├── RetrievalService
-├── KnowledgeGraphService
+├── OnlineRetrievalService
 └── GenerationService
 ```
 
-현재 파이프라인은 의존성만 정의한 골격이며 내부 실행 로직은 구현 예정이다.
+현재 질의응답 파이프라인은 선택 논문을 온라인으로 인덱싱하고 검색 근거를
+생성 모델에 전달한다. `PaperAnalysisPipeline`은 아직 골격이다.
 
 ### Modules
 
@@ -67,6 +69,7 @@ modules/
 ├── vector_read/         # Qdrant 선택 논문·글로벌 벡터 조회
 ├── knowledge_graph/     # Neo4j 논문 그래프 조회와 인용 확장
 ├── retrieval/           # 벡터·그래프 검색 조율과 결과 결합 골격
+├── online_retrieval/    # 단일 논문 온라인 인메모리 인덱싱·검색
 ├── generation/          # 요약과 근거 기반 답변 생성
 └── conversations/       # 대화와 메시지 이력
 ```
@@ -93,9 +96,11 @@ from linkpaper.modules.documents import DocumentService
 
 ### Adapters
 
-외부 시스템과 연결되는 구현을 배치한다. 현재는 구현 전인
-`OpenAIClient` 골격만 존재한다. Neo4j와 Qdrant 연결은 각각 저장소 스키마를
-소유한 `knowledge_graph/`, `vector_read/` 모듈 내부에 둔다.
+외부 시스템과 연결되는 구현을 배치한다. `OpenAIClient`는 Responses API 기반
+스트리밍 생성과 Embeddings API 호출을 제공하고,
+`HuggingFaceMarkdownClient`는 선택 논문의 Markdown 본문을 가져온다. Neo4j와
+Qdrant 연결은 각각 저장소 스키마를 소유한 `knowledge_graph/`, `vector_read/`
+모듈 내부에 둔다.
 
 ### 의존성 조립
 
@@ -111,8 +116,9 @@ Router
   → Adapter 또는 Neo4j·Qdrant
 ```
 
-현재 `KnowledgeGraphService`는 파이프라인에 주입되어 있다. `VectorReadService`를
-`RetrievalService`에 연결하고 질의 임베딩을 생성하는 작업은 다음 구현 단계다.
+현재 Chat 파이프라인에는 `OnlineRetrievalService`와 `GenerationService`만
+주입한다. `KnowledgeGraphService`와 `VectorReadService`는 향후 별도 GraphRAG
+파이프라인에서 `RetrievalService`를 통해 조합한다.
 
 ## 로컬 실행
 
@@ -169,10 +175,14 @@ pytest
 
 - FastAPI 애플리케이션 팩토리와 API 라우터 구성
 - 가벼운 모듈러 모놀리스 패키지 경계 구성
-- 논문 분석 및 GraphRAG 질의응답 파이프라인 골격 생성
+- Chat SSE API와 OpenAI Responses API 스트리밍 구현
+- OpenAI 임베딩과 Hugging Face Papers Markdown 조회 구현
+- 선택 논문 단일 인메모리 온라인 인덱싱·검색 구현
+- 검색 근거를 답변 생성에 전달하는 질의응답 파이프라인 구현
+- 교체 가능한 `RetrievalBackend` 계약 정의
+- 논문 분석 및 별도 GraphRAG 파이프라인 골격 생성
 - 모듈별 `service.py`, `models.py` 골격 생성
 - FastAPI 의존성 팩토리에서 파이프라인 조립
-- OpenAI 클라이언트 어댑터 골격 생성
 - 공통 설정, 예외, 로깅 골격 생성
 - FastAPI, Neo4j, Qdrant, PostgreSQL Docker Compose 구성
 - Qdrant payload DTO와 선택 논문·글로벌 범위 read 서비스 구현
@@ -184,8 +194,11 @@ pytest
 
 ## 다음 구현 순서
 
-1. Hugging Face Papers 검색 어댑터와 `PaperService` 구현
-2. 적재 모델과 동일한 설정을 사용하는 온라인 질의 임베딩 구현
-3. `VectorReadService`를 `RetrievalService`에 연결
-4. Qdrant 검색 결과의 `chunk_id`를 이용한 Neo4j 그래프 확장과 결과 결합
-5. PostgreSQL 대화 저장과 근거 기반 답변 생성 구현
+1. Docker에서 온라인 인덱싱·검색·생성 smoke test 완료
+2. 청킹, 검색 threshold, citation 등 단일 논문 RAG 보강
+3. `RetrievalBackend` 기반 MiniRAG adapter의 필요성과 효과 검증
+4. `VectorReadService`와 `KnowledgeGraphService`를 사용하는 별도 GraphRAG 구현
+5. PostgreSQL 대화 저장과 운영 관측성 구현
+
+세부 테스트 절차와 우선순위별 TODO는
+[`docs/pipeline-development.md`](../docs/pipeline-development.md)를 참고한다.

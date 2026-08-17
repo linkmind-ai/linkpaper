@@ -6,16 +6,12 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Literal, TypeAlias
 
-from linkpaper.modules.conversations import ConversationService
 from linkpaper.modules.generation import (
     GenerationMessage,
     GenerationRequest,
     GenerationService,
 )
-from linkpaper.modules.knowledge_graph import KnowledgeGraphService
-from linkpaper.modules.retrieval import RetrievalService
-
-ChatMode: TypeAlias = Literal["paper-qa", "graph-rag-qa", "research-flow"]
+from linkpaper.modules.online_retrieval import OnlineRetrievalService, RetrievedChunk
 
 
 @dataclass(frozen=True)
@@ -63,14 +59,10 @@ class QuestionAnsweringPipeline:
 
     def __init__(
         self,
-        conversations: ConversationService,
-        retrieval: RetrievalService,
-        knowledge_graph: KnowledgeGraphService,
+        retrieval: OnlineRetrievalService,
         generation: GenerationService,
     ) -> None:
-        self.conversations = conversations
         self.retrieval = retrieval
-        self.knowledge_graph = knowledge_graph
         self.generation = generation
 
     async def stream(
@@ -79,10 +71,9 @@ class QuestionAnsweringPipeline:
         paper_id: str,
         message: str,
         history: list[ChatMessage],
-        mode: ChatMode | None = None,
     ) -> AsyncIterator[PipelineEvent]:
         """모델 답변을 API용 이벤트로 변환한다."""
-        selected_mode = mode or self._route(message)
+        chunks = await self.retrieval.search(paper_id, message)
         request = GenerationRequest(
             paper_id=paper_id,
             question=message,
@@ -90,44 +81,18 @@ class QuestionAnsweringPipeline:
                 GenerationMessage(role=item.role, content=item.content)
                 for item in history
             ],
+            context=self._format_context(chunks),
         )
 
         async for text in self.generation.stream_answer(request):
             yield TokenEvent(text=text)
 
-        if selected_mode in {"graph-rag-qa", "research-flow"}:
-            yield CitationsEvent(citations=self._citations(paper_id))
-
-        if selected_mode == "research-flow":
-            yield FlowEvent(flow=self._flow())
-
         yield DoneEvent()
 
     @staticmethod
-    def _route(message: str) -> ChatMode:
-        normalized = message.casefold()
-        flow_keywords = ("연구 흐름", "선행", "후속", "research flow")
-        graph_keywords = ("관련 논문", "인용", "비교", "citation")
-
-        if any(keyword in normalized for keyword in flow_keywords):
-            return "research-flow"
-        if any(keyword in normalized for keyword in graph_keywords):
-            return "graph-rag-qa"
-        return "paper-qa"
-
-    @staticmethod
-    def _citations(paper_id: str) -> list[dict[str, str]]:
-        return [
-            {
-                "id": paper_id,
-                "label": f"선택 논문 {paper_id}",
-                "relation": "selected-paper",
-            }
-        ]
-
-    @staticmethod
-    def _flow() -> list[dict[str, str]]:
-        return [
-            {"stage": "selected", "label": "선택 논문"},
-            {"stage": "related", "label": "관련 연구"},
-        ]
+    def _format_context(chunks: list[RetrievedChunk]) -> str | None:
+        if not chunks:
+            return None
+        return "\n\n".join(
+            f"[{chunk.chunk_id}]\n{chunk.text}" for chunk in chunks
+        )

@@ -9,6 +9,7 @@ description = "GraphRAG-powered research paper exploration backend"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115,<1.0",
+    "httpx>=0.28,<1.0",
     "neo4j>=5.26,<7.0",
     "openai>=2.0,<3.0",
     "pydantic-settings>=2.7,<3.0",
@@ -18,7 +19,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "httpx>=0.28,<1.0",
     "pytest>=8.3,<9.0",
 ]
 

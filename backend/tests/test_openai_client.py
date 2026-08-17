@@ -38,9 +38,29 @@ class FakeResponses:
         return FakeStream(self.events)
 
 
+@dataclass
+class FakeEmbedding:
+    index: int
+    embedding: list[float]
+
+
+class FakeEmbeddings:
+    def __init__(self) -> None:
+        self.request: dict[str, Any] | None = None
+
+    async def create(self, **kwargs: Any):
+        self.request = kwargs
+        data = [
+            FakeEmbedding(index=index, embedding=[float(index), 1.0])
+            for index, _ in enumerate(kwargs["input"])
+        ]
+        return type("EmbeddingResponse", (), {"data": data})()
+
+
 class FakeSDKClient:
     def __init__(self, events: list[FakeEvent]) -> None:
         self.responses = FakeResponses(events)
+        self.embeddings = FakeEmbeddings()
         self.closed = False
 
     async def close(self) -> None:
@@ -86,6 +106,24 @@ def test_stream_text_rejects_empty_messages() -> None:
 
     with pytest.raises(ValueError, match="messages"):
         asyncio.run(collect())
+
+
+def test_embed_texts_returns_vectors_in_input_order() -> None:
+    sdk = FakeSDKClient([])
+    settings = Settings(
+        linkpaper_embedding_model="test-embedding",
+        linkpaper_embedding_dimensions=2,
+    )
+    client = OpenAIClient(settings=settings, sdk_client=sdk)
+
+    vectors = asyncio.run(client.embed_texts(["first", "second"]))
+
+    assert vectors == [[0.0, 1.0], [1.0, 1.0]]
+    assert sdk.embeddings.request == {
+        "model": "test-embedding",
+        "input": ["first", "second"],
+        "dimensions": 2,
+    }
 
 
 def test_close_closes_initialized_sdk_client() -> None:

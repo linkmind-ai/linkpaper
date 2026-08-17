@@ -5,10 +5,8 @@ from fastapi.testclient import TestClient
 
 from linkpaper.api.dependencies import get_question_answering_pipeline
 from linkpaper.main import app
-from linkpaper.modules.conversations import ConversationService
 from linkpaper.modules.generation import GenerationService
-from linkpaper.modules.knowledge_graph import KnowledgeGraphService
-from linkpaper.modules.retrieval import RetrievalService
+from linkpaper.modules.online_retrieval import RetrievedChunk
 from linkpaper.pipelines.question_answering import QuestionAnsweringPipeline
 
 
@@ -17,12 +15,22 @@ class FakeOpenAIClient:
         yield "테스트 답변"
 
 
+class FakeOnlineRetrievalService:
+    async def search(self, paper_id, query):
+        return [
+            RetrievedChunk(
+                chunk_id=f"{paper_id}:online:0:test",
+                paper_id=paper_id,
+                text="테스트 검색 근거",
+                score=1.0,
+            )
+        ]
+
+
 @pytest.fixture(autouse=True)
 def use_fake_generation():
     pipeline = QuestionAnsweringPipeline(
-        conversations=ConversationService(),
-        retrieval=RetrievalService(),
-        knowledge_graph=KnowledgeGraphService(),
+        retrieval=FakeOnlineRetrievalService(),
         generation=GenerationService(client=FakeOpenAIClient()),
     )
     app.dependency_overrides[get_question_answering_pipeline] = lambda: pipeline
@@ -38,26 +46,11 @@ def parse_sse(response_text: str) -> list[dict[str, object]]:
     return events
 
 
-@pytest.mark.parametrize(
-    ("mode", "expected_types"),
-    [
-        ("paper-qa", ["token", "done"]),
-        (
-            "graph-rag-qa",
-            ["token", "citations", "done"],
-        ),
-        (
-            "research-flow",
-            ["token", "citations", "flow", "done"],
-        ),
-    ],
-)
-def test_chat_stream_contract(mode: str, expected_types: list[str]) -> None:
+def test_chat_stream_contract() -> None:
     response = TestClient(app).post(
         "/api/v1/chat/stream",
         json={
             "paperId": "p-001",
-            "mode": mode,
             "message": "핵심 기여은?",
             "history": [
                 {"id": "m-1", "role": "user", "content": "핵심 기여은?"}
@@ -74,16 +67,15 @@ def test_chat_stream_contract(mode: str, expected_types: list[str]) -> None:
     for event in events:
         actual_types.append(event["type"])
 
-    assert actual_types == expected_types
+    assert actual_types == ["token", "done"]
 
 
-def test_chat_stream_rejects_unknown_mode() -> None:
+def test_chat_stream_rejects_empty_message() -> None:
     response = TestClient(app).post(
         "/api/v1/chat/stream",
         json={
             "paperId": "p-001",
-            "mode": "unknown",
-            "message": "question",
+            "message": "",
             "history": [],
         },
     )

@@ -56,6 +56,19 @@ class OpenAIClient:
             if delta:
                 yield delta
 
+    async def embed_texts(self, texts: Sequence[str]) -> list[list[float]]:
+        """입력 순서를 유지한 임베딩 벡터를 반환한다."""
+        if not texts:
+            return []
+
+        response = await self.sdk_client.embeddings.create(
+            model=self.settings.linkpaper_embedding_model,
+            input=list(texts),
+            dimensions=self.settings.linkpaper_embedding_dimensions,
+        )
+        ordered = sorted(response.data, key=lambda item: item.index)
+        return [item.embedding for item in ordered]
+
     async def close(self) -> None:
         if self._sdk_client is not None:
             await self._sdk_client.close()

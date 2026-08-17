@@ -11,7 +11,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from linkpaper.api.dependencies import get_question_answering_pipeline
 from linkpaper.pipelines.question_answering import (
     ChatMessage,
-    ChatMode,
     ErrorEvent,
     PipelineEvent,
     QuestionAnsweringPipeline,
@@ -35,8 +34,6 @@ class ChatMessageRequest(BaseModel):
 
 class ChatStreamRequest(BaseModel):
     paperId: str = Field(min_length=1)
-    # 프론트엔드는 생략하고, 테스트나 내부 클라이언트는 명시할 수 있다.
-    mode: ChatMode | None = None
     message: str = Field(min_length=1)
     history: list[ChatMessageRequest] = Field(default_factory=list)
 
@@ -74,7 +71,6 @@ async def stream_chat(
         try:
             async for event in pipeline.stream(
                 paper_id=request.paperId,
-                mode=request.mode,
                 message=request.message,
                 history=history,
             ):
