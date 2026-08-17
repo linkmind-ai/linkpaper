@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     log_level: str = "INFO"
 
+    openai_api_key: str = ""
+    openai_chat_model: str = "gpt-5.6-luna"
+
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_username: str = "neo4j"
     neo4j_password: str = "linkpaper-password"
@@ -19,7 +22,6 @@ class Settings(BaseSettings):
     qdrant_collection: str = "linkpaper_chunks_openai_3_large_1536_v1"
 
     # 온라인 질의 벡터도 오프라인 적재 벡터와 같은 차원을 사용해야 한다.
-    #.env와 맞춰주세용
     linkpaper_embedding_provider: str = "openai"
     linkpaper_embedding_model: str = "text-embedding-3-large"
     linkpaper_embedding_dimensions: int = 1536

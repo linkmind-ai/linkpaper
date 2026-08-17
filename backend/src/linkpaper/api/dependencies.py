@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from linkpaper.adapters.llm import OpenAIClient
 from linkpaper.modules.conversations import ConversationService
 from linkpaper.modules.documents import DocumentService
 from linkpaper.modules.generation import GenerationService
@@ -11,12 +12,17 @@ from linkpaper.pipelines.question_answering import QuestionAnsweringPipeline
 
 
 @lru_cache
+def get_generation_service() -> GenerationService:
+    return GenerationService(client=OpenAIClient())
+
+
+@lru_cache
 def get_paper_analysis_pipeline() -> PaperAnalysisPipeline:
     return PaperAnalysisPipeline(
         papers=PaperService(),
         documents=DocumentService(),
         knowledge_graph=KnowledgeGraphService(),
-        generation=GenerationService(),
+        generation=get_generation_service(),
     )
 
 
@@ -26,5 +32,5 @@ def get_question_answering_pipeline() -> QuestionAnsweringPipeline:
         conversations=ConversationService(),
         retrieval=RetrievalService(),
         knowledge_graph=KnowledgeGraphService(),
-        generation=GenerationService(),
+        generation=get_generation_service(),
     )
