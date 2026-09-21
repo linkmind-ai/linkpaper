@@ -85,6 +85,7 @@ SET c.paperId = $paperId,
     c.chunkIndex = chunk.chunkIndex,
     c.text = chunk.text,
     c.section = chunk.section,
+    c.sectionPath = chunk.sectionPath,
     c.charCount = chunk.charCount,
     c.contentHash = chunk.contentHash,
     c.updatedAt = datetime()
@@ -200,6 +201,7 @@ def prepare_graph_payload(
             "chunkIndex": chunk.chunk_index,
             "text": chunk.text,
             "section": chunk.section or None,
+            "sectionPath": chunk.section_path or None,
             "charCount": chunk.char_count,
             "contentHash": chunk.content_hash,
         }

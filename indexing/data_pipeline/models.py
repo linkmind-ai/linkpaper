@@ -18,6 +18,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 # 본문을 어떤 경로로 확보했는지. 재처리 판단과 품질 추적에 쓴다.
+# 현재 파이프라인은 `pdf-pymupdf4llm`만 만든다. `hf-markdown`은 HF Markdown
+# 경로를 쓰던 시절에 적재된 데이터를 읽기 위해 남겨둔 값이다.
 MarkdownSource = Literal["hf-markdown", "pdf-pymupdf4llm"]
 
 
@@ -84,6 +86,10 @@ class PaperChunk(BaseModel):
     text: str
     section: str
     section_index: int
+    # 최상위 제목부터 이 청크가 속한 제목까지를 이은 경로.
+    # "2 Method > 2.1 Setup" 처럼 나오며, 하위 섹션의 청크가 어느 상위 섹션에
+    # 속하는지 알려준다. `section`만으로는 2.1이 2의 하위라는 걸 알 수 없다.
+    section_path: str = ""
     # 참고문헌 섹션은 여러 청크로 나뉠 수 있다. 임베딩 대상에서 제외할지는
     # Graph Builder가 이 플래그로 판단한다.
     is_references: bool = False
