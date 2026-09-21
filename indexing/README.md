@@ -28,8 +28,8 @@ indexing/
 | 컴포넌트 | 파일 | 책임 |
 |---|---|---|
 | HF Papers Client | `hf_client.py` | 단건 조회, 특정 날짜 Daily Papers, 기간·월 단위 조회 |
-| Preprocessor | `preprocessor.py` | HF Markdown 우선 확보, 실패 시 PDF 다운로드 후 pymupdf4llm 변환 |
-| Chunker | `chunker.py` | 섹션 분리 후 청킹, 참고문헌 섹션 원문 분리 |
+| Preprocessor | `preprocessor.py` | arXiv PDF 다운로드 후 pymupdf4llm으로 Markdown 변환 |
+| Chunker | `chunker.py` | 섹션 분리 후 청킹, 참고문헌 섹션 원문 분리, 부록 제외 |
 | Metadata Curator | `metadata_curator.py` | 참고문헌에서 arXiv ID 추출, 최종 메타데이터 완성 |
 | Data Pipeline | `pipeline.py` | 조립, 배치 실행, 논문 단위 실패 격리 |
 
@@ -134,7 +134,7 @@ ProcessedPaper(metadata=PaperMetadata, chunks=list[PaperChunk])
 | `source_url`, `pdf_url` | HF 논문 페이지, arXiv PDF |
 | `references` | 참고문헌에서 추출한 arXiv ID 목록 (Curator) |
 | `content_hash` | 본문 Markdown의 SHA-256 (Curator) |
-| `source_version` | `hf-markdown` 또는 `pdf-pymupdf4llm` (Curator) |
+| `source_version` | `pdf-pymupdf4llm` (Curator). `hf-markdown`은 과거 적재분에만 존재 |
 
 | PaperChunk | 설명 |
 |---|---|
@@ -188,7 +188,7 @@ ProcessedPaper(metadata=PaperMetadata, chunks=list[PaperChunk])
     "1703.03130", "1703.10722", "1705.03122", "1705.04304"
   ],
   "content_hash": "c0e87a4bd5ea7663137eda990b1d2bc6a6fe6722ab99bddeb2bee1f6734a6639",
-  "source_version": "hf-markdown"
+  "source_version": "pdf-pymupdf4llm"
 }
 ```
 
