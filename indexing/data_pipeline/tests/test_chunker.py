@@ -1,8 +1,8 @@
 """Chunker 테스트.
 
-가장 조용히 깨지는 지점은 제목 인식이다. HF Markdown은 상위 섹션을 setext
-형식으로 쓰기 때문에 `^#`만 보면 참고문헌 섹션을 통째로 놓치고, 그러면
-`references`가 아무 오류 없이 빈 목록이 된다.
+가장 조용히 깨지는 지점은 제목 인식이다. 참고문헌 섹션을 놓치면 `references`가
+아무 오류 없이 빈 목록이 되고, 제목이 아닌 줄을 제목으로 잡으면 섹션 이름이
+틀린 채로 근거 표시에 나간다.
 """
 
 from __future__ import annotations
@@ -12,18 +12,41 @@ from data_pipeline.chunker import Chunker, is_references_heading, split_sections
 PAPER_ID = "2401.00001"
 
 
-def test_setext_and_atx_headings_are_both_detected(paper_markdown: str) -> None:
+def test_headings_at_every_depth_are_detected(paper_markdown: str) -> None:
     titles = [section.title for section in split_sections(paper_markdown)]
 
-    # setext (`----` 밑줄) 상위 섹션
+    # 상위 섹션
     assert "1 Introduction" in titles
     assert "2 Method" in titles
     assert "References" in titles
-    # ATX 하위 섹션
+    # 하위 섹션
     assert "2.1 Setup" in titles
     assert "Abstract" in titles
     # 첫 제목 앞의 저자 블록
     assert titles[0] == "Front Matter"
+
+
+def test_setext_underline_does_not_make_a_heading() -> None:
+    """본문 줄 아래의 구분선이나 수식 조각이 윗줄을 제목으로 만들면 안 된다.
+
+    HF Markdown 경로를 쓰던 때 `=` 한 글자짜리 줄이 윗줄의 수식 기호를 제목으로
+    만들었다(2608.05042).
+    """
+    markdown = (
+        "## **3 Method**\n\n"
+        "The loss is defined as\n"
+        "𝐿\n"
+        "=\n"
+        "the sum of both terms.\n\n"
+        "Last line of the page\n"
+        "-----\n\n"
+        "First line of the next page.\n"
+    )
+    sections = split_sections(markdown)
+
+    assert [section.title for section in sections] == ["3 Method"]
+    assert "Last line of the page" in sections[0].text
+    assert "First line of the next page." in sections[0].text
 
 
 def test_heading_without_body_is_dropped() -> None:
@@ -37,9 +60,12 @@ def test_heading_without_body_is_dropped() -> None:
     assert sections[0].index == 0
 
 
-def test_code_fence_underline_is_not_a_heading(paper_markdown: str) -> None:
-    titles = [section.title for section in split_sections(paper_markdown)]
-    assert 'value = "not a heading"' not in titles
+def test_comment_inside_a_code_fence_is_not_a_heading(paper_markdown: str) -> None:
+    sections = split_sections(paper_markdown)
+
+    assert "코드 블록 안의 주석은 제목이 아니다" not in [s.title for s in sections]
+    chunking = next(s for s in sections if s.title == "2.2 Chunking")
+    assert 'value = "not a heading"' in chunking.text
 
 
 def test_references_heading_variants() -> None:
@@ -185,8 +211,7 @@ def test_chunks_do_not_cross_section_boundaries(settings) -> None:
 def test_pymupdf_bold_headings_are_normalized(settings) -> None:
     """pymupdf4llm은 제목을 `## **1 Introduction**` 처럼 굵게 감싸서 낸다.
 
-    그대로 두면 같은 논문이라도 본문을 어느 경로로 받았는지에 따라 섹션 이름이
-    달라진다.
+    그대로 두면 강조 표시가 섹션 이름에 섞여 근거 표시에 노출된다.
     """
     markdown = "## **1 Introduction**\n\nbody text\n\n## **References**\n\n[1] arXiv:1607.06450"
 

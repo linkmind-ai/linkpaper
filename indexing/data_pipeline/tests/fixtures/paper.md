@@ -1,12 +1,11 @@
 Alice Kim, Bob Lee
 
-###### Abstract
+###### **Abstract**
 
 We study section-aware chunking of research papers and show that it preserves
 evidence boundaries better than fixed-window splitting.
 
-1 Introduction
---------------
+## **1 Introduction**
 
 Recurrent models [[13](https://arxiv.org/html/2401.00001v1#bib.bib13)] have been
 established as strong baselines for sequence modeling. We revisit this claim
@@ -16,33 +15,29 @@ with a controlled study.
 
 Figure 1: Overview of the proposed method.
 
-2 Method
---------
+## **2 Method**
 
 Our method has two stages: section detection and size-bounded splitting.
 
-### 2.1 Setup
+### **2.1 Setup**
 
 We train on a corpus of 10k documents and evaluate retrieval quality.
 
-### 2.2 Chunking
+### **2.2 Chunking**
 
 The splitter never crosses a section boundary.
 
 ```python
-# 코드 블록 안의 밑줄은 제목이 아니다
+# 코드 블록 안의 주석은 제목이 아니다
 value = "not a heading"
---------
 ```
 
-3 Preference Learning
----------------------
+## **3 Preference Learning**
 
 We also compare against preference-based reranking. This heading contains the
 word preference and must not be treated as a bibliography section.
 
-References
-----------
+## **References**
 
 *   [1] Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E Hinton. Layer normalization. arXiv preprint arXiv:1607.06450, 2016.
 *   [2] Dzmitry Bahdanau, Kyunghyun Cho, and Yoshua Bengio. Neural machine translation by jointly learning to align and translate. CoRR, abs/1409.0473, 2014.

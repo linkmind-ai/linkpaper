@@ -96,6 +96,32 @@ Compose의 `indexing`은 `jobs` 프로필을 사용하므로 일반 `docker comp
 52청크 대 51청크). `references` 추출 결과는 양쪽 모두 동일했지만,
 `content_hash`가 달라지므로 재처리 판단은 같은 환경에서 하는 것이 안전하다.
 
+## 정기 실행 (cron)
+
+Daily Papers를 글로벌 코퍼스(base DB)에 매일 반영하려면 호스트 crontab에
+`scripts/index_daily_papers.sh`를 등록한다. 스크립트는
+`docker compose run --rm -T indexing daily --days-ago 1 --global-corpus`를
+실행하고 결과를 `logs/index_daily_papers.log`에 덧붙인다.
+
+```cron
+# 매일 10:00 KST(01:00 UTC)에 전날(UTC) Daily Papers를 반영한다
+0 10 * * * /path/to/linkpaper/scripts/index_daily_papers.sh
+```
+
+오늘이 아니라 전날을 처리한다. HF Daily Papers는 날짜 경계가 UTC이고 당일
+목록은 하루 동안 채워지므로, 당일을 조회하면 일부만 적재된다. `--days-ago`는
+호스트 시간대와 무관하게 UTC 기준으로 날짜를 계산한다. 주말처럼 목록이 없는
+날은 0편으로 정상 종료한다.
+
+실행이 빠진 날짜는 자동으로 채우지 않는다. 로그에서 누락을 확인하고 날짜를
+지정해 다시 실행한다. 적재가 멱등이라 같은 날짜를 다시 돌려도 안전하다.
+
+```bash
+scripts/index_daily_papers.sh --date 2026-10-01
+```
+
+한 편이라도 실패하면 종료 코드가 1이고 실패 논문과 단계가 로그에 남는다.
+
 ## Job 인터페이스
 
 주기 실행 스케줄러는 이 모듈에 없다. 외부 Job은 `IndexingJob`을 호출한다.
@@ -128,7 +154,7 @@ ProcessedPaper(metadata=PaperMetadata, chunks=list[PaperChunk])
 
 | PaperMetadata | 설명 |
 |---|---|
-| `paper_id` | HF Papers ID (= arXiv base ID). Markdown 주소와 Chunk ID가 이 값을 쓴다 |
+| `paper_id` | HF Papers ID (= arXiv base ID). arXiv PDF 주소와 Chunk ID가 이 값을 쓴다 |
 | `arxiv_id` | arXiv 형식일 때만 채운다 |
 | `title`, `abstract`, `authors`, `keywords`, `published_at` | Client가 채운다 |
 | `source_url`, `pdf_url` | HF 논문 페이지, arXiv PDF |
@@ -258,26 +284,19 @@ metadata만 보면 2.1KB이고 나머지는 대부분 청크 본문이다. 메�
 `Link: ...; rel="next"` 가 붙는다. 마지막 페이지에도 next가 붙는 경우가 있어
 빈 응답에서도 멈춘다.
 
-**Markdown 유효성.** 없는 논문의 `.md` 주소는 404와 함께 HTML 오류 페이지를
-돌려준다. 상태 코드만 보면 HTML을 본문으로 착각하므로 content-type과 본문
-형태, 최소 길이를 함께 확인한다.
-
 **제목 표기.** 참고문헌 섹션을 찾지 못하면 `references`가 아무 오류 없이 빈
-목록이 된다. 실제 입력에서 관찰된 표기가 네 가지라 모두 처리한다.
+목록이 된다. 실제 입력에서 관찰된 표기가 세 가지라 모두 처리한다. setext
+형식(`References` + `------`)은 pymupdf4llm이 내지 않으므로 인식하지 않는다.
 
 | 표기 | 출처 |
 |---|---|
 | `## References` (ATX) | pymupdf4llm |
-| `References` + `------` (setext) | HF Markdown의 상위 섹션 |
 | `## **References**` (굵게 감싼 제목) | pymupdf4llm |
 | 본문 중간의 `**References** [1] ...`, 제목 없는 `References` 줄 | 단 나뉜 PDF, 제목이 없는 논문 |
 
 마지막 두 형태는 제목으로 승격시킨 뒤 처리한다. 앞쪽 목차의 `References`
 줄을 실제 목록으로 오인하면 본문 대부분이 참고문헌으로 분류되고 본문의 arXiv
 ID가 인용 관계로 둔갑하므로, 문서 후반부의 표기만 인정한다.
-
-`Attention Is All You Need`를 두 경로로 각각 처리하면 HF Markdown 49청크,
-PDF 변환 52청크로 양쪽 모두 같은 16건의 references를 추출한다.
 
 **청킹 경계.** 청크는 섹션 경계를 넘지 않는다. 한 청크가 두 섹션에 걸치면
 그 청크의 `section` 값이 거짓이 되고 근거 표시도 틀리게 된다.
@@ -300,8 +319,9 @@ PDF 변환 52청크로 양쪽 모두 같은 16건의 references를 추출한다.
 |---|---|---|
 | `INDEXING_HF_PAGE_SIZE` | 50 | Daily Papers 페이지 크기 |
 | `INDEXING_HF_MAX_RETRIES` | 3 | 429·5xx·전송 오류 재시도 횟수 |
-| `INDEXING_MARKDOWN_MIN_CHARS` | 500 | 이보다 짧으면 PDF로 전환 |
-| `INDEXING_CHUNK_SIZE` / `_OVERLAP` | 1200 / 150 | 청크 크기 (문자 수) |
+| `INDEXING_MARKDOWN_MIN_CHARS` | 500 | PDF 변환 결과가 이보다 짧으면 실패 처리 |
+| `INDEXING_MAX_CHUNK_CHARS` | 24000 | 섹션 하나를 나누는 안전 상한 (문자 수) |
+| `INDEXING_INCLUDE_APPENDIX` | false | 부록 섹션을 청크로 남길지 |
 | `INDEXING_LOG_LEVEL` | INFO | |
 
 저장소와 임베딩 builder는 다음 설정을 사용한다.

@@ -35,7 +35,7 @@ class PaperMetadata(BaseModel):
     뿐이라 모델을 나누면 필드만 중복된다.
 
     `paper_id`는 Hugging Face Papers의 논문 ID(= arXiv base ID)를 그대로 쓴다.
-    Preprocessor의 Markdown 주소와 Chunk ID가 이 값을 그대로 사용한다.
+    arXiv PDF 주소와 Chunk ID가 이 값을 그대로 사용한다.
     """
 
     model_config = ConfigDict(extra="ignore")
