@@ -1,20 +1,13 @@
 """논문 Markdown을 섹션 단위로 나눈 뒤 청킹한다.
 
-Markdown의 제목 표기는 한 가지가 아니다. Hugging Face의 `.md` 응답은 상위
-섹션을 setext 형식으로 쓴다.
+입력은 pymupdf4llm이 PDF를 변환한 Markdown이고, 제목은 전부 ATX 형식
+(`## **3.1 Attention**`)이다. setext 형식(`=`·`-` 밑줄)은 인식하지 않는다.
+본문 줄 바로 아래의 구분선이나 수식 조각이 윗줄을 제목으로 만들기 때문이다.
 
-    References
-    ----------
-
-반면 하위 섹션은 ATX 형식(`### 3.1 Attention`)이고, pymupdf4llm 변환 결과는
-전부 ATX다. `^#`만 찾으면 HF 경로에서는 상위 섹션과 참고문헌을 통째로 놓치므로
-두 형식을 모두 인식한다.
-
-섹션 분할 자체는 `MarkdownHeaderTextSplitter`에 맡기되, 그 앞에
-`_normalize_setext_headings`를 반드시 둔다. 이 splitter는 ATX만 인식해서
-정규화를 건너뛰면 HF 경로의 상위 섹션과 참고문헌을 통째로 놓친다. 대신 상위
-제목 경로를 metadata로 돌려주므로 `2.1 Setup`이 `2 Method`의 하위라는 정보를
-얻는다.
+섹션 분할 자체는 `MarkdownHeaderTextSplitter`에 맡긴다. 상위 제목 경로를
+metadata로 돌려주므로 `2.1 Setup`이 `2 Method`의 하위라는 정보를 얻는다.
+다만 pymupdf4llm은 글꼴 크기로 제목을 판단해서 제목이 아닌 줄도 제목으로
+내므로, 분할 전에 그런 줄을 일반 문단으로 되돌린다.
 
 청킹은 섹션 경계를 넘지 않는다. 한 청크가 두 섹션에 걸치면 그 청크의 `section`
 값이 거짓이 되고, 근거 표시도 틀리게 된다.
@@ -40,10 +33,6 @@ logger = logging.getLogger(__name__)
 FRONT_MATTER = "Front Matter"
 
 _ATX_HEADING_RE = re.compile(r"^#{1,6}\s+(.*?)\s*$")
-_SETEXT_UNDERLINE_RE = re.compile(r"^\s*(=+|-+)\s*$")
-_FENCE_RE = re.compile(r"^\s*(```|~~~)")
-# setext 밑줄로 오인하기 쉬운 목록·인용·표 줄을 제외한다.
-_NON_TITLE_PREFIX = ("*", "-", "+", ">", "|", "#")
 
 # 제목 앞 번호. '7 References', 'A.1 References', 'IV. Introduction' 등.
 _LEADING_NUMBER_RE = re.compile(
@@ -300,7 +289,7 @@ class Chunker:
 def split_sections(markdown: str) -> list[Section]:
     """제목을 기준으로 본문을 섹션으로 나눈다.
 
-    setext 제목을 ATX로 통일한 뒤 `MarkdownHeaderTextSplitter`에 넘긴다. 그
+    제목이 아닌 줄을 강등한 뒤 `MarkdownHeaderTextSplitter`에 넘긴다. 그
     결과에는 상위 제목 경로가 metadata로 붙어 오므로, 하위 섹션이 어느 상위
     섹션에 속하는지 알 수 있다.
     """
@@ -310,7 +299,7 @@ def split_sections(markdown: str) -> list[Section]:
     markdown = _PICTURE_TEXT_RE.sub("", markdown)
     normalized = "\n".join(
         _demote_author_headings(
-            _demote_sentence_fragment_headings(_normalize_setext_headings(markdown))
+            _demote_sentence_fragment_headings(markdown.splitlines())
         )
     )
 
@@ -379,7 +368,7 @@ def promote_inline_references_heading(markdown: str) -> str | None:
     """제목으로 표기되지 않은 참고문헌 표시를 제목으로 바꾼다.
 
     이 보정이 없으면 `references`가 아무 오류 없이 빈 목록이 된다. 실제
-    Hugging Face Markdown과 pymupdf4llm 출력 양쪽에서 관찰된 형태를 다룬다.
+    입력에서 관찰된 형태를 다룬다.
 
     문서 후반부의 마지막 표시만 승격시킨다. 앞쪽에서 언급된 'References'는
     목차이거나 본문 중의 단순 언급일 가능성이 높다.
@@ -429,8 +418,8 @@ def is_references_heading(title: str) -> bool:
 def clean_markdown(text: str) -> str:
     """청킹 전 본문 정리.
 
-    이미지를 지우고 링크는 표시 문자열만 남긴다. 논문 Markdown은 인용 표시마다
-    긴 앵커 URL이 붙어 있어서, 그대로 두면 청크의 상당 부분이 URL로 채워진다.
+    이미지를 지우고 링크는 표시 문자열만 남긴다. pymupdf4llm은 PDF의 링크를
+    `[text](url)`로 옮기는데, 그대로 두면 URL이 청크를 채운다.
     """
     # picture text 블록은 섹션 분할 전에 이미 제거됐다. 남은 주석은 변환기가
     # 남긴 표시라 본문이 아니다.
@@ -440,41 +429,3 @@ def clean_markdown(text: str) -> str:
     text = _LINK_RE.sub(r"\1", text)
     text = _BLANK_LINES_RE.sub("\n\n", text)
     return text.strip()
-
-
-def _normalize_setext_headings(markdown: str) -> list[str]:
-    """setext 제목을 ATX로 바꿔 이후 처리를 한 형식으로 통일한다.
-
-    References          ->  ## References
-    ----------
-    """
-    lines = markdown.splitlines()
-    normalized: list[str] = []
-    in_fence = False
-    index = 0
-
-    while index < len(lines):
-        line = lines[index]
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-            normalized.append(line)
-            index += 1
-            continue
-
-        underline = lines[index + 1] if index + 1 < len(lines) else None
-        if (
-            not in_fence
-            and underline is not None
-            and line.strip()
-            and not line.strip().startswith(_NON_TITLE_PREFIX)
-            and _SETEXT_UNDERLINE_RE.match(underline)
-        ):
-            level = 1 if underline.strip().startswith("=") else 2
-            normalized.append(f"{'#' * level} {line.strip()}")
-            index += 2
-            continue
-
-        normalized.append(line)
-        index += 1
-
-    return normalized

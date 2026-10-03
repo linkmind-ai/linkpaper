@@ -27,7 +27,7 @@ def settings() -> IndexingSettings:
 
 @pytest.fixture
 def paper_markdown() -> str:
-    """HF `.md` 응답을 본뜬 논문 본문."""
+    """pymupdf4llm 변환 결과를 본뜬 논문 본문. 제목은 굵게 감싼 ATX다."""
     return (FIXTURES / "paper.md").read_text(encoding="utf-8")
 
 
