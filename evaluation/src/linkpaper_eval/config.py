@@ -11,10 +11,10 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Self
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 
@@ -22,20 +22,28 @@ _ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 class GateRule(BaseModel):
     """게이트 한 줄. 절대 기준과 회귀 허용치를 함께 지정할 수 있다."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     min: float | None = None
     max: float | None = None
-    max_regression: float | None = None
+    max_regression: float | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> Self:
+        if self.min is None and self.max is None and self.max_regression is None:
+            raise ValueError("A gate must define min, max, or max_regression")
+        if self.min is not None and self.max is not None and self.min > self.max:
+            raise ValueError("Gate min must be less than or equal to max")
+        return self
 
 
 class RunOptions(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
-    concurrency: int = 4
+    concurrency: int = Field(default=4, gt=0)
     output_dir: str = "runs"
-    limit: int | None = None
-    repeat: int = 1
+    limit: int | None = Field(default=None, gt=0)
+    repeat: int = Field(default=1, gt=0)
 
 
 class EvalConfig(BaseModel):
@@ -46,13 +54,22 @@ class EvalConfig(BaseModel):
     target: dict[str, Any] = Field(default_factory=dict)
     targets: dict[str, dict[str, Any]] = Field(default_factory=dict)
     judge: dict[str, Any] = Field(default_factory=dict)
-    k_values: list[int] = Field(default_factory=lambda: [1, 3, 5, 10])
+    k_values: list[Annotated[int, Field(gt=0)]] = Field(
+        default_factory=lambda: [1, 3, 5, 10], min_length=1
+    )
     gates: dict[str, GateRule] = Field(default_factory=dict)
     run: RunOptions = Field(default_factory=RunOptions)
     baseline: str | None = None
 
     # 설정 파일 위치. 상대 경로 해석 기준으로 쓴다.
     base_dir: Path = Field(default_factory=Path.cwd, exclude=True)
+
+    @field_validator("k_values")
+    @classmethod
+    def unique_cutoffs(cls, values: list[int]) -> list[int]:
+        if len(set(values)) != len(values):
+            raise ValueError("k_values must not contain duplicate cutoffs")
+        return values
 
     def resolve(self, relative: str) -> Path:
         path = Path(relative)

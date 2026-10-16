@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from linkpaper_eval.gates import GateReport
+from linkpaper_eval.metrics import metric_counts, metric_counts_by_tag
 from linkpaper_eval.schemas import RunResult
 
 _HEADLINE = {
@@ -41,6 +42,8 @@ def render(
 ) -> str:
     manifest = result.manifest
     baseline = baseline or {}
+    counts = result.metric_counts or metric_counts(result.cases)
+    tag_counts = result.by_tag_metric_counts or metric_counts_by_tag(result.cases)
     lines: list[str] = []
 
     lines.append(f"# 평가 리포트 — {manifest.suite}")
@@ -54,6 +57,11 @@ def render(
     if manifest.judge:
         lines.append(f"- 심판: `{manifest.judge}`")
     lines.append(f"- 케이스 수: {manifest.case_count}")
+    lines.append("")
+    lines.append(
+        "품질 지표의 평가 표본은 실패 케이스와 해당 정답이 없는 케이스를 제외합니다. "
+        "점수와 함께 `operational.error_rate` 및 지표별 평가 표본 수를 확인하세요."
+    )
     lines.append("")
 
     if gate_report is not None:
@@ -80,16 +88,18 @@ def render(
         if available:
             lines.append("## 핵심 지표")
             lines.append("")
-            lines.append(_metric_table(available, result.aggregate, baseline))
+            lines.append(_metric_table(available, result.aggregate, baseline, counts))
             lines.append("")
 
     lines.append("## 전체 지표")
     lines.append("")
-    lines.append(_metric_table(sorted(result.aggregate), result.aggregate, baseline))
+    lines.append(_metric_table(sorted(result.aggregate), result.aggregate, baseline, counts))
     lines.append("")
 
     if result.by_tag:
         lines.append("## 태그별 결과")
+        lines.append("")
+        lines.append("각 지표의 `n`은 해당 태그에서 평가에 포함된 표본 수입니다.")
         lines.append("")
         tag_metrics = _tag_columns(manifest.suite, result)
         header = "| 태그 | 케이스 | " + " | ".join(f"`{m}`" for m in tag_metrics) + " |"
@@ -98,7 +108,9 @@ def render(
         for tag, values in result.by_tag.items():
             count = int(values.get("operational.case_count", 0))
             cells = " | ".join(
-                f"{values[metric]:.4f}" if metric in values else "—"
+                f"{values[metric]:.4f} (n={_count_cell(metric, tag_counts.get(tag, {}))})"
+                if metric in values
+                else "—"
                 for metric in tag_metrics
             )
             lines.append(f"| {tag} | {count} | {cells} |")
@@ -139,20 +151,28 @@ def _metric_table(
     names: list[str],
     aggregate: dict[str, float],
     baseline: dict[str, float],
+    counts: dict[str, int],
 ) -> str:
-    rows = ["| 지표 | 값 | 베이스라인 | 변화 |", "|---|---:|---:|---:|"]
+    rows = ["| 지표 | 값 | 평가 표본 | 베이스라인 | 변화 |", "|---|---:|---:|---:|---:|"]
     for name in names:
         value = aggregate[name]
+        count = _count_cell(name, counts)
         reference = baseline.get(name)
         if reference is None:
-            rows.append(f"| `{name}` | {value:.4f} | — | — |")
+            rows.append(f"| `{name}` | {value:.4f} | {count} | — | — |")
         else:
             delta = value - reference
             sign = "+" if delta >= 0 else ""
             rows.append(
-                f"| `{name}` | {value:.4f} | {reference:.4f} | {sign}{delta:.4f} |"
+                f"| `{name}` | {value:.4f} | {count} | {reference:.4f} | {sign}{delta:.4f} |"
             )
     return "\n".join(rows)
+
+
+def _count_cell(name: str, counts: dict[str, int]) -> str:
+    if name.startswith("operational."):
+        return "—"
+    return str(counts[name]) if name in counts else "—"
 
 
 def _tag_columns(suite: str, result: RunResult) -> list[str]:

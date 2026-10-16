@@ -76,6 +76,8 @@ def run_suite(config: EvalConfig, run_id: str | None = None) -> RunResult:
         manifest=manifest,
         aggregate=metric_lib.aggregate(results),
         by_tag=metric_lib.aggregate_by_tag(results),
+        metric_counts=metric_lib.metric_counts(results),
+        by_tag_metric_counts=metric_lib.metric_counts_by_tag(results),
         cases=results,
     )
 
@@ -122,7 +124,7 @@ def _score_case(
                 )
             )
             computed["retrieval.paper_hit@5"] = retrieval.hit_at_k(
-                [item.paper_id or "" for item in response.retrieved],
+                [item.paper_id or "" for item in response.ranked_items()],
                 case.gold_paper_ids,
                 5,
             )
@@ -152,7 +154,7 @@ def _score_case(
         error=response.error,
         answer=response.answer,
         citations=response.citations,
-        retrieved_chunk_ids=ranked[:10],
+        retrieved_chunk_ids=ranked,
         tags=case.tags,
     )
 
@@ -167,7 +169,12 @@ def save_run(result: RunResult, output_dir: Path) -> Path:
     )
     (run_dir / "metrics.json").write_text(
         json.dumps(
-            {"aggregate": result.aggregate, "by_tag": result.by_tag},
+            {
+                "aggregate": result.aggregate,
+                "by_tag": result.by_tag,
+                "metric_counts": result.metric_counts,
+                "by_tag_metric_counts": result.by_tag_metric_counts,
+            },
             indent=2,
             ensure_ascii=False,
         ),
