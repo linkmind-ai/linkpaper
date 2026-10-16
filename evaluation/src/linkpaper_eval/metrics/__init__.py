@@ -16,6 +16,8 @@ from linkpaper_eval.schemas import CaseResult
 __all__ = [
     "aggregate",
     "aggregate_by_tag",
+    "metric_counts",
+    "metric_counts_by_tag",
     "extraction",
     "generation",
     "operational",
@@ -48,8 +50,27 @@ def aggregate(results: Sequence[CaseResult]) -> dict[str, float]:
 
 def aggregate_by_tag(results: Sequence[CaseResult]) -> dict[str, dict[str, float]]:
     """태그별 집계. 질문 유형별 약점을 찾는 데 사용한다."""
+    return {tag: aggregate(items) for tag, items in _group_by_tag(results).items()}
+
+
+def metric_counts(results: Sequence[CaseResult]) -> dict[str, int]:
+    """품질 지표 평균에 실제로 포함된 케이스 수. 운영 지표는 별도 집계다."""
+    counts: dict[str, int] = {}
+    for result in results:
+        for name, value in result.metrics.items():
+            if not math.isnan(value):
+                counts[name] = counts.get(name, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def metric_counts_by_tag(results: Sequence[CaseResult]) -> dict[str, dict[str, int]]:
+    """태그별 품질 지표 표본 수. 한 케이스의 중복 태그는 한 번만 센다."""
+    return {tag: metric_counts(items) for tag, items in _group_by_tag(results).items()}
+
+
+def _group_by_tag(results: Sequence[CaseResult]) -> dict[str, list[CaseResult]]:
     grouped: dict[str, list[CaseResult]] = {}
     for result in results:
-        for tag in result.tags:
+        for tag in set(result.tags):
             grouped.setdefault(tag, []).append(result)
-    return {tag: aggregate(items) for tag, items in sorted(grouped.items())}
+    return dict(sorted(grouped.items()))

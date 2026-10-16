@@ -11,6 +11,7 @@ CI 실패로 바꿔서, 품질 저하가 머지되기 전에 드러나게 한다
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -44,7 +45,17 @@ def load_baseline(path: str | Path | None) -> dict[str, float]:
     if not baseline_path.exists():
         return {}
     payload = json.loads(baseline_path.read_text(encoding="utf-8"))
-    return payload.get("aggregate", payload)
+    if not isinstance(payload, dict):
+        raise ValueError(f"Baseline must be a JSON object: {baseline_path}")
+    aggregate = payload.get("aggregate", payload)
+    if not isinstance(aggregate, dict):
+        raise ValueError(f"Baseline aggregate must be a JSON object: {baseline_path}")
+    for metric, value in aggregate.items():
+        if not _finite_number(value):
+            raise ValueError(
+                f"Baseline metric '{metric}' must be a finite number: {baseline_path}"
+            )
+    return aggregate
 
 
 def save_baseline(result: RunResult, path: str | Path) -> Path:
@@ -62,6 +73,7 @@ def save_baseline(result: RunResult, path: str | Path) -> Path:
             },
             indent=2,
             ensure_ascii=False,
+            allow_nan=False,
         ),
         encoding="utf-8",
     )
@@ -89,6 +101,17 @@ def evaluate_gates(
             )
             continue
 
+        if not _finite_number(value):
+            outcomes.append(
+                GateOutcome(
+                    metric=metric,
+                    passed=False,
+                    value=None,
+                    reason="지표가 유한한 숫자가 아닙니다",
+                )
+            )
+            continue
+
         reference = baseline.get(metric)
         failures: list[str] = []
 
@@ -96,24 +119,29 @@ def evaluate_gates(
             failures.append(f"{value:.4f} < min {rule.min}")
         if rule.max is not None and value > rule.max:
             failures.append(f"{value:.4f} > max {rule.max}")
-        if rule.max_regression is not None and reference is not None:
-            drop = (
-                value - reference
-                if _lower_is_better(metric)
-                else reference - value
-            )
-            if drop > rule.max_regression:
-                failures.append(
-                    f"베이스라인 {reference:.4f} 대비 {drop:.4f} 악화 "
-                    f"(허용 {rule.max_regression})"
+        if rule.max_regression is not None:
+            if reference is None:
+                failures.append("회귀 비교에 필요한 베이스라인 지표가 없습니다")
+            elif not _finite_number(reference):
+                failures.append("회귀 비교에 필요한 베이스라인 지표가 유한한 숫자가 아닙니다")
+            else:
+                drop = (
+                    value - reference
+                    if _lower_is_better(metric)
+                    else reference - value
                 )
+                if drop > rule.max_regression:
+                    failures.append(
+                        f"베이스라인 {reference:.4f} 대비 {drop:.4f} 악화 "
+                        f"(허용 {rule.max_regression})"
+                    )
 
         outcomes.append(
             GateOutcome(
                 metric=metric,
                 passed=not failures,
                 value=value,
-                baseline=reference,
+                baseline=reference if _finite_number(reference) else None,
                 reason="; ".join(failures) if failures else "통과",
             )
         )
@@ -126,3 +154,12 @@ def evaluate_gates(
 
 def _lower_is_better(metric: str) -> bool:
     return any(token in metric for token in _LOWER_IS_BETTER)
+
+
+def _finite_number(value: object) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False

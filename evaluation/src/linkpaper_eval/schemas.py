@@ -80,9 +80,10 @@ class EvalCase(BaseModel):
         return 1 if chunk_id in self.gold_chunk_ids else 0
 
     def graded_ids(self) -> list[str]:
+        """명시적 등급이 있으면 그 값을 우선해 관련 청크만 반환한다."""
         ids = set(self.gold_chunk_ids)
-        ids.update(k for k, v in self.grades.items() if v > 0)
-        return sorted(ids)
+        ids.update(self.grades)
+        return sorted(chunk_id for chunk_id in ids if self.grade_of(chunk_id) > 0)
 
 
 class RetrievedItem(BaseModel):
@@ -137,18 +138,16 @@ class TargetResponse(BaseModel):
     error: str | None = None
     raw: dict[str, Any] = Field(default_factory=dict)
 
-    def ranked_chunk_ids(self) -> list[str]:
+    def ranked_items(self) -> list[RetrievedItem]:
         """rank 필드가 있으면 그 순서를, 없으면 배열 순서를 신뢰한다."""
         items = list(self.retrieved)
         if all(item.rank is not None for item in items) and items:
             items.sort(key=lambda item: item.rank or 0)
-        seen: set[str] = set()
-        ordered: list[str] = []
-        for item in items:
-            if item.chunk_id not in seen:
-                seen.add(item.chunk_id)
-                ordered.append(item.chunk_id)
-        return ordered
+        return items
+
+    def ranked_chunk_ids(self) -> list[str]:
+        """중복도 검색 순위를 차지한다. 중복 가점은 지표 함수에서 막는다."""
+        return [item.chunk_id for item in self.ranked_items()]
 
     def evidence_text(self) -> str:
         return "\n".join(item.text for item in self.retrieved if item.text)
@@ -199,6 +198,8 @@ class RunResult(BaseModel):
     manifest: RunManifest
     aggregate: dict[str, float] = Field(default_factory=dict)
     by_tag: dict[str, dict[str, float]] = Field(default_factory=dict)
+    metric_counts: dict[str, int] = Field(default_factory=dict)
+    by_tag_metric_counts: dict[str, dict[str, int]] = Field(default_factory=dict)
     cases: list[CaseResult] = Field(default_factory=list)
 
 

@@ -124,7 +124,7 @@ def _command_run(args: argparse.Namespace) -> int:
             )
             return 2
         config.target = dict(spec)
-    if args.limit:
+    if args.limit is not None:
         config.run.limit = args.limit
 
     result = run_suite(config, run_id=args.run_id)
@@ -197,6 +197,8 @@ def _load_run(run_dir: Path) -> RunResult | None:
             "manifest": manifest,
             "aggregate": metrics.get("aggregate", {}),
             "by_tag": metrics.get("by_tag", {}),
+            "metric_counts": metrics.get("metric_counts", {}),
+            "by_tag_metric_counts": metrics.get("by_tag_metric_counts", {}),
             "cases": cases,
         }
     )

@@ -1,6 +1,9 @@
 """검색 품질 지표.
 
 모든 함수는 순위가 매겨진 ID 리스트와 정답 집합만 받는다. 저장소(Qdrant, Neo4j)나 검색 방식에 의존하지 않으므로 검색기가 바뀌어도 그대로 쓸 수 있다.
+
+같은 ID가 반복되면 첫 등장에만 점수를 주고 중복된 순위 자리는 유지한다.
+정답이 없거나 k가 양수가 아닌 경우 지표를 적용할 수 없으므로 NaN을 반환한다.
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ from collections.abc import Sequence
 def recall_at_k(ranked: Sequence[str], gold: Sequence[str], k: int) -> float:
     """정답 중 상위 k개 안에 들어온 비율."""
     gold_set = set(gold)
-    if not gold_set:
+    if k <= 0 or not gold_set:
         return float("nan")
     hits = gold_set & set(ranked[:k])
     return len(hits) / len(gold_set)
@@ -20,17 +23,17 @@ def recall_at_k(ranked: Sequence[str], gold: Sequence[str], k: int) -> float:
 
 def precision_at_k(ranked: Sequence[str], gold: Sequence[str], k: int) -> float:
     """상위 k개 중 정답 비율. 검색 결과가 k보다 적으면 k로 나눈다."""
-    if k <= 0:
-        return float("nan")
     gold_set = set(gold)
-    hits = sum(1 for chunk_id in ranked[:k] if chunk_id in gold_set)
-    return hits / k
+    if k <= 0 or not gold_set:
+        return float("nan")
+    hits = gold_set & set(ranked[:k])
+    return len(hits) / k
 
 
 def hit_at_k(ranked: Sequence[str], gold: Sequence[str], k: int) -> float:
     """상위 k개 안에 정답이 하나라도 있으면 1."""
     gold_set = set(gold)
-    if not gold_set:
+    if k <= 0 or not gold_set:
         return float("nan")
     return 1.0 if gold_set & set(ranked[:k]) else 0.0
 
@@ -57,11 +60,15 @@ def ndcg_at_k(
     정답 청크에 1을 넣어 호출하면 된다.
     """
     positives = {key: value for key, value in grades.items() if value > 0}
-    if not positives:
+    if k <= 0 or not positives:
         return float("nan")
 
     dcg = 0.0
+    seen: set[str] = set()
     for index, chunk_id in enumerate(ranked[:k], start=1):
+        if chunk_id in seen:
+            continue
+        seen.add(chunk_id)
         gain = grades.get(chunk_id, 0)
         if gain > 0:
             dcg += (2**gain - 1) / math.log2(index + 1)
@@ -81,12 +88,12 @@ def average_precision(ranked: Sequence[str], gold: Sequence[str]) -> float:
     gold_set = set(gold)
     if not gold_set:
         return float("nan")
-    hits = 0
+    hits: set[str] = set()
     total = 0.0
     for index, chunk_id in enumerate(ranked, start=1):
-        if chunk_id in gold_set:
-            hits += 1
-            total += hits / index
+        if chunk_id in gold_set and chunk_id not in hits:
+            hits.add(chunk_id)
+            total += len(hits) / index
     return total / len(gold_set)
 
 

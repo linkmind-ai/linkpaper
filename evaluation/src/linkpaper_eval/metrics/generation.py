@@ -30,12 +30,29 @@ def tokenize(text: str) -> list[str]:
     ]
 
 
+def _answer_tokens(text: str) -> list[str]:
+    """검색용 토큰과 달리 숫자·한 글자 정답을 보존한다.
+
+    문장의 불용어는 기존처럼 제외하되, 답 전체가 불용어인 경우에는
+    원래 토큰을 사용한다. 따라서 선택지 ``A`` 같은 정답도 비교할 수 있다.
+    """
+    tokens = _TOKEN_RE.findall(text.lower())
+    content_tokens = [token for token in tokens if token not in _STOPWORDS]
+    return content_tokens or tokens
+
+
 def token_f1(prediction: str, reference: str) -> float:
-    """SQuAD 스타일 토큰 F1. 정답 문자열이 있는 케이스에서만 쓴다."""
-    pred_tokens = tokenize(prediction)
-    ref_tokens = tokenize(reference)
-    if not pred_tokens or not ref_tokens:
+    """중복 토큰 수를 반영하는 F1.
+
+    비교할 정답 토큰이 없으면 미라벨 케이스로 보고 NaN을 반환한다.
+    정답이 있는데 예측이 비어 있으면 실패이므로 0점으로 집계한다.
+    """
+    pred_tokens = _answer_tokens(prediction)
+    ref_tokens = _answer_tokens(reference)
+    if not ref_tokens:
         return float("nan")
+    if not pred_tokens:
+        return 0.0
 
     common: dict[str, int] = {}
     ref_counts: dict[str, int] = {}
@@ -71,22 +88,27 @@ def lexical_groundedness(answer: str, evidence: str) -> float:
 
 
 def citation_validity(citations: Sequence[str], retrieved: Sequence[str]) -> float:
-    """인용한 청크 ID가 실제 검색 결과 안에 있는 비율.
+    """고유 인용 청크 ID 중 실제 검색 결과 안에 있는 비율.
 
     존재하지 않는 chunkId를 인용하면 프런트엔드에서 근거 링크가 깨진다.
+    인용 자체가 없으면 검증할 대상이 없으므로 NaN이다.
     """
-    if not citations:
+    citation_set = set(citations)
+    if not citation_set:
         return float("nan")
     retrieved_set = set(retrieved)
-    valid = sum(1 for chunk_id in citations if chunk_id in retrieved_set)
-    return valid / len(citations)
+    return len(citation_set & retrieved_set) / len(citation_set)
 
 
 def citation_precision(citations: Sequence[str], gold: Sequence[str]) -> float:
-    if not citations:
-        return float("nan")
+    """고유 인용 중 정답 청크의 비율. 미라벨은 NaN, 인용 누락은 0점."""
     gold_set = set(gold)
-    return sum(1 for chunk_id in citations if chunk_id in gold_set) / len(citations)
+    if not gold_set:
+        return float("nan")
+    citation_set = set(citations)
+    if not citation_set:
+        return 0.0
+    return len(citation_set & gold_set) / len(citation_set)
 
 
 def citation_recall(citations: Sequence[str], gold: Sequence[str]) -> float:
@@ -113,6 +135,7 @@ def evaluate_case(
     """케이스 하나의 생성 지표 묶음. LLM 심판 점수는 runner에서 합친다."""
     evidence = response.evidence_text()
     retrieved_ids = response.ranked_chunk_ids()
+    gold_ids = case.graded_ids()
 
     metrics = {
         f"{prefix}.groundedness_lexical": lexical_groundedness(
@@ -122,10 +145,10 @@ def evaluate_case(
             response.citations, retrieved_ids
         ),
         f"{prefix}.citation_precision": citation_precision(
-            response.citations, case.gold_chunk_ids
+            response.citations, gold_ids
         ),
         f"{prefix}.citation_recall": citation_recall(
-            response.citations, case.gold_chunk_ids
+            response.citations, gold_ids
         ),
         f"{prefix}.has_citation": 1.0 if response.citations else 0.0,
         f"{prefix}.must_include": must_include_rate(
