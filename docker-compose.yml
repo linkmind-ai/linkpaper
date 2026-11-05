@@ -1,6 +1,17 @@
 name: linkpaper
 
 services:
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_BACKEND_ORIGIN: http://backend:8000
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
