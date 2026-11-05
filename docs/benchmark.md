@@ -158,6 +158,9 @@ bergen을 얹으면 두 개의 실행 체계를 동시에 유지해야 한다. �
 
 ## 4. 평가셋 생성 (그래프 & 벡터 인덱스 기반)
 
+생성·스냅샷 재생성·실제 온톨로지·필수 네 지표의 전체 실행은
+[합성 벤치마크 가이드](synthetic-benchmark.md)를 기준으로 한다.
+
 [ragas testset generation](https://docs.ragas.io/en/stable/getstarted/rag_testset_generation/)의
 2단계 구조를 우리 지식그래프 위에서 돌린다.
 
@@ -170,16 +173,9 @@ bergen을 얹으면 두 개의 실행 체계를 동시에 유지해야 한다. �
 
 ### 4.1 무엇이 LinkPaper 고유한가
 
-ragas의 기본 관계는 코사인 유사도와 엔티티 겹침으로 만들어진다. 우리에게는
-그것 말고도 **Neo4j에 명시적인 인용 관계**가 있다. 인용으로 연결된 청크 쌍을
-지식그래프에 함께 넣으면, 멀티홉 질문이 "우연히 비슷한 두 문단"이 아니라
-**실제로 이어진 연구 흐름** 위에서 만들어진다. `"이 논문의 한계를 해결한
-후속 연구는?"` 같은 질문의 정답 근거를 만들 수 있다는 뜻이고, 이게
-PROJECT_SPEC의 문제의식과 직결되는 부분이다.
-
-간선 종류는 태그로 남는다 (`link:cites`, `link:shared_entity`,
-`link:vector`). 태그별 집계를 보면 어떤 종류의 연결에서 검색이 약한지
-드러난다.
+현재 Neo4j의 CITES/NEXT_CHUNK, 실제 존재하는 MENTIONS와 Qdrant 저장 벡터를
+후보 연결로 사용한다. Ragas용 커스텀 시나리오 생성기가 관계 종류와 방향을
+유지한다. 인용만으로 개선·인과를 추론하지 않으며 정답은 원문으로 뒷받침한다.
 
 ### 4.2 실행
 
@@ -206,7 +202,7 @@ linkpaper-eval testgen \
 | `--engine` | `ragas` (실사용) \| `offline` (배관 검증) |
 | `--paper-ids` + `--expand-hops` | 관심 논문에서 인용 관계로 몇 홉까지 넓힐지 |
 | `--no-graph` / `--no-vector` | 간선 출처를 끈다. 각각의 기여를 분리해 볼 때 |
-| `--vector-backend` | `auto` (Qdrant 시도 후 메모리 계산) \| `qdrant` \| `local` |
+| `--vector-backend` | `auto` (JSONL이면 local, DB 소스면 Qdrant; 연결 실패 시 중단) \| `qdrant` \| `local` |
 | `--save-kg` | ragas KnowledgeGraph 저장. 가장 비싼 단계라 재사용 가치가 크다 |
 
 **비용 주의.** 코퍼스 전체를 LLM에 통과시키면 요금이 빠르게 커진다.
@@ -238,7 +234,8 @@ linkpaper-eval testgen \
   되는 사고를 막는다. 기존 테스트가 손으로 만든 데이터셋에 하던 검증을
   생성 경로에도 적용한 것이다.
 
-문제가 있으면 종료 코드 1과 함께 목록을 출력한다.
+스키마 검증 실패나 유효 케이스 0건이면 산출물을 게시하지 않고 종료 코드 2를 반환한다.
+부분 근거·빈 정답·중복 질문의 제외 건수는 매니페스트에 기록한다.
 
 생성한 데이터셋은 `datasets/generated/` 아래에 놓이고 gitignore 대상이다.
 검토해서 쓰기로 한 것만 `datasets/<suite>/`로 옮겨 커밋한다. 생성물을 전부
@@ -254,7 +251,7 @@ linkpaper-eval testgen \
 |---|---|
 | `QDRANT_URL` | `http://localhost:6333` |
 | `QDRANT_API_KEY` | (없음) |
-| `QDRANT_COLLECTION` | `linkpaper_chunks` |
+| `QDRANT_COLLECTION` | `linkpaper_chunks_v1` (기존 운영 컬렉션명으로 설정) |
 | `NEO4J_URI` | `bolt://localhost:7687` |
 | `NEO4J_USERNAME` / `NEO4J_PASSWORD` | `neo4j` / `linkpaper-password` |
 | `NEO4J_DATABASE` | `neo4j` |
@@ -284,9 +281,9 @@ linkpaper-eval bench doctor
 
 ```bash
 pip install -e '.[stores]'
-linkpaper-eval bench seed --name qasper              # Qdrant + Neo4j
-linkpaper-eval bench seed --name qasper --no-neo4j   # 벡터만
-linkpaper-eval bench clean --qdrant --neo4j          # 되돌리기
+linkpaper-eval bench seed --name qasper --collection linkpaper_eval_qasper              # Qdrant + Neo4j
+linkpaper-eval bench seed --name qasper --collection linkpaper_eval_qasper --no-neo4j   # 벡터만
+linkpaper-eval bench clean --qdrant --collection linkpaper_eval_qasper --neo4j          # 되돌리기
 ```
 
 적재는 멱등이다. `chunk_id`가 같으면 point와 노드를 덮어쓴다.
@@ -315,34 +312,16 @@ linkpaper-eval bench clean --qdrant --neo4j          # 되돌리기
 
 ## 6. DB에 직접 붙는 타깃
 
-백엔드 API를 거치지 않고 Qdrant + Neo4j에 직접 붙어 **검색만** 평가한다.
-백엔드가 아직 `501`을 반환하는 동안에도 "인덱스와 그래프가 실제로 답을
-찾아 주는가"를 잴 수 있다.
+`vector`는 Qdrant 검색과 LLM 답변 생성 기준 시스템이다. `hybrid`는 기존
+Qdrant+Neo4j 검색과 추출식 답변 타깃이다. 생성기가 다르므로 두 답변 점수의
+차이를 그래프 효과로 해석하지 않는다. 검색 확장의 대조군은
+`configs/hybrid.yaml`의 `vector_retrieval`이다.
 
 ```bash
-linkpaper-eval bench run --name qasper --suite retrieval --target hybrid
-linkpaper-eval bench run --name qasper --suite retrieval --target vector   # 그래프 확장 끔
-linkpaper-eval run --config configs/hybrid.yaml --target hybrid
+linkpaper-eval run --config configs/vector.yaml --run-id vector-1019
+linkpaper-eval bench score --run-id vector-1019
+linkpaper-eval run --config configs/hybrid.yaml --target vector_retrieval
 ```
-
-동작은 [data-retrieval-architecture.md](./data-architecture/data-retrieval-architecture.md)의
-조건부 확장을 단순화한 것이다.
-
-1. 질문을 임베딩한다.
-2. 선택 논문 안에서, 그리고 코퍼스 전체에서 각각 검색한다.
-3. 두 최고 점수의 비율로 범위를 정한다. BM25 베이스라인과 **같은 판정
-   규칙**을 써서 두 타깃의 `routing.accuracy`를 직접 비교할 수 있게 했다.
-4. `global`이면 Neo4j 인용 관계로 이웃 논문의 청크를 후보에 더한다. 그래프로
-   데려온 청크는 벡터 점수가 없으므로 질의와의 유사도를 직접 계산해 같은
-   척도에 올린다.
-5. 상위 근거의 첫 문장들로 추출식 답변을 만든다.
-
-**답변 생성에 LLM을 쓰지 않는 것은 의도적이다.** 이 타깃이 재는 대상은
-검색이고, LLM을 끼우면 생성 품질이 검색 점수에 섞인다. 생성까지 포함한
-평가는 백엔드 타깃(`--target http`)이 담당한다.
-
-`hybrid`와 `vector`의 차이가 **그래프가 실제로 기여한 몫**이다. GraphRAG를
-쓰는 근거를 숫자로 보여 주는 비교이므로, 두 타깃을 항상 같이 돌린다.
 
 ## 7. ragas 지표
 
@@ -356,13 +335,12 @@ export OPENAI_API_KEY=...
 
 linkpaper-eval bench run --name qasper --suite generation --run-id r1
 linkpaper-eval bench score --run-id r1 --name qasper --suite generation \
-  --metrics faithfulness,answer_relevancy,context_recall
+  --metrics faithfulness,answer_relevancy,context_precision,context_recall
 ```
 
 **실행 중이 아니라 실행이 끝난 뒤에 채점한다.** 이유는 두 가지다.
 
-1. `runner.run_suite`를 건드리지 않는다. 기존 실행 경로에 LLM 호출이
-   끼어들면 오프라인 CI가 깨진다.
+1. 러너는 실제 답변·검색 본문·정답을 기록하고 LLM 심판은 별도 단계에서 호출한다.
 2. 같은 실행 결과를 여러 번 다시 채점할 수 있다. 지표나 심판 모델을 바꿔
    볼 때 파이프라인을 다시 돌릴 필요가 없다.
 
@@ -370,9 +348,9 @@ linkpaper-eval bench score --run-id r1 --name qasper --suite generation \
 지표와 섞이지 않는다. **LLM 심판은 점수에 분산이 있으므로 CI 게이트 기준으로
 쓰지 않는다.**
 
-`--name`을 주면 코퍼스에서 근거 텍스트를 복원한다. 주지 않으면
-`retrieved_contexts`가 비어서 `context_*`와 `faithfulness`는 신뢰할 수 없고,
-그 경우 경고가 나온다.
+새 실행은 실제 검색 본문과 정답을 저장하므로 외부 코퍼스 없이 재채점할 수 있다.
+과거 실행은 `--name` 또는 `--corpus`/`--dataset`으로 복원한다. 누락·예외·NaN은
+지표별 실패로 기록하고 불완전한 채점은 종료 코드 1을 반환한다.
 
 ## 8. 알려진 한계
 
@@ -384,16 +362,14 @@ linkpaper-eval bench score --run-id r1 --name qasper --suite generation \
   인덱싱(overlap 150)과 다른 선택이며, 목적이 다르기 때문이다. 절대 점수를
   서비스 성능으로 읽지 말 것.
 - **오프라인 생성 엔진은 어휘 검색에 유리하다.** 4.3 참고.
-- **ragas 관계 주입은 best-effort다.** 관계 속성 이름이 ragas 내부
-  시나리오 생성기가 참조하는 값이라 버전에 따라 달라질 수 있다. 인식되지
-  않아도 ragas 자체 관계로 생성은 계속되므로, 실패가 아니라 품질 저하로
-  나타난다.
+- **Ragas 합성 정답은 표본 검토가 필요하다.** 스키마·원문 ID·간선·근거 매칭을
+  자동 검증해도 질문의 자연스러움과 정답의 의미적 정확성을 보장하지 않는다.
 - **QASPER는 `global` 라우팅을 검증하지 못한다.** 3.1 참고.
 
 ## 9. 다음 단계
 
 1. QASPER로 `--target baseline` / `vector` / `hybrid` 실측 후 베이스라인 확정
-2. `hybrid` vs `vector` 차이로 그래프 기여도 정량화
+2. `hybrid` vs `vector_retrieval` 검색 지표 차이로 그래프 기여도 정량화
 3. 인용 그래프가 실제로 적재된 뒤 `--engine ragas`로 `link:cites` 기반
    멀티홉 데이터셋 생성, 사람이 검토해 `datasets/`로 승격
 4. 실제 분포 확인 후 `configs/hybrid.yaml`의 게이트 채우기

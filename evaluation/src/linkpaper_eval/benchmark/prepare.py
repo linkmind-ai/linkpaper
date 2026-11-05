@@ -136,8 +136,8 @@ def build_config(
             "options": {"top_k": 10, "citation_count": 3},
         },
         "vector": {
-            "type": "graphrag_hybrid",
-            "options": {"top_k": 10, "citation_count": 3, "graph_expansion": False},
+            "type": "vector_rag",
+            "options": {"top_k": 10},
         },
     }
     if target not in presets:

@@ -152,7 +152,12 @@ def _score_case(
         error=response.error,
         answer=response.answer,
         citations=response.citations,
-        retrieved_chunk_ids=ranked[:10],
+        retrieved_chunk_ids=ranked,
+        retrieved_contexts=[
+            next(item.text for item in response.retrieved if item.chunk_id == chunk_id)
+            for chunk_id in ranked
+        ],
+        reference=case.gold_answer,
         tags=case.tags,
     )
 

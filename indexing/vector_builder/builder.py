@@ -65,6 +65,7 @@ def prepare_vector_points(
             "chunk_index": chunk.chunk_index,
             "text": chunk.text,
             "section": chunk.section or None,
+            "section_path": chunk.section_path or None,
             "char_count": chunk.char_count,
             "content_hash": chunk.content_hash,
             "title": metadata.title,

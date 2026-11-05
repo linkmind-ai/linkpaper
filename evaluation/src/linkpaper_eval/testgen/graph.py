@@ -98,7 +98,7 @@ def _dedupe(links: Sequence[ChunkLink]) -> list[ChunkLink]:
 def graph_links(
     chunks: Sequence[ChunkRecord],
     settings: StoreSettings | None = None,
-    include_same_paper: bool = True,
+    include_same_paper: bool = False,
 ) -> list[ChunkLink]:
     """Neo4j에서 청크 간 간선을 읽어 온다."""
     from linkpaper_eval.stores.neo4j_store import Neo4jStore
@@ -128,7 +128,7 @@ def graph_links(
 
 
 def same_paper_links(chunks: Sequence[ChunkRecord]) -> list[ChunkLink]:
-    """같은 논문의 인접 청크를 잇는다. DB 없이도 만들 수 있는 연결이다."""
+    """Connect local same-paper candidates without inventing NEXT_CHUNK gaps."""
     by_paper: dict[str, list[ChunkRecord]] = {}
     for chunk in chunks:
         by_paper.setdefault(chunk.paper_id, []).append(chunk)
@@ -144,7 +144,13 @@ def same_paper_links(chunks: Sequence[ChunkRecord]) -> list[ChunkLink]:
         )
         for first, second in zip(ordered, ordered[1:]):
             links.append(
-                ChunkLink(source=first.chunk_id, target=second.chunk_id, type="next")
+                ChunkLink(
+                    source=first.chunk_id,
+                    target=second.chunk_id,
+                    type=("next" if first.chunk_index is not None
+                          and second.chunk_index == first.chunk_index + 1 else "same_paper"),
+                    metadata={"origin": "corpus_order", "paper_id": first.paper_id},
+                )
             )
     return links
 
@@ -171,9 +177,14 @@ def vector_links_local(
     전체를 확인할 수 있다. 청크 수가 수천 개를 넘으면 O(n²)가 부담되므로
     그때는 `vector_links_qdrant`를 쓴다.
     """
+    owned_embedder = embedder is None
     embedder = embedder or build_embedder()
     threshold = embedder.link_threshold if min_score is None else min_score
-    vectors = embedder.embed([chunk.text for chunk in chunks])
+    try:
+        vectors = embedder.embed([chunk.text for chunk in chunks])
+    finally:
+        if owned_embedder:
+            embedder.close()
 
     links: list[ChunkLink] = []
     for index, chunk in enumerate(chunks):
@@ -210,18 +221,20 @@ def vector_links_qdrant(
     from linkpaper_eval.stores.qdrant_store import QdrantStore
 
     settings = settings or StoreSettings.from_env()
-    embedder = build_embedder(settings.embedding)
-    threshold = embedder.link_threshold if min_score is None else min_score
-    try:
-        vectors = embedder.embed([chunk.text for chunk in chunks])
-    finally:
-        embedder.close()
-
+    threshold = 0.30 if min_score is None else min_score
+    chunk_ids = [chunk.chunk_id for chunk in chunks]
     links: list[ChunkLink] = []
     with QdrantStore(settings.qdrant) as store:
-        for chunk, vector in zip(chunks, vectors):
-            # 자기 자신이 1위로 나오므로 한 칸 더 받는다.
-            hits = store.search(vector, top_k=top_k + 1)
+        for chunk in chunks:
+            vector = store.vector_for_chunk(chunk.chunk_id)
+            if vector is None:
+                continue
+            hits = store.search(
+                vector,
+                top_k=top_k + 1,
+                chunk_ids=chunk_ids,
+                exclude_paper_ids=[chunk.paper_id] if cross_paper_only else None,
+            )
             added = 0
             for hit in hits:
                 if hit.chunk.chunk_id == chunk.chunk_id:
@@ -236,6 +249,7 @@ def vector_links_qdrant(
                         target=hit.chunk.chunk_id,
                         type=VECTOR_LINK_TYPE,
                         score=round(hit.score, 4),
+                        metadata={"origin": "qdrant", "collection": settings.qdrant.collection},
                     )
                 )
                 added += 1
@@ -253,40 +267,29 @@ def build_chunk_graph(
     top_k: int = 3,
     min_score: float | None = None,
 ) -> ChunkGraph:
-    """그래프 간선과 벡터 간선을 합쳐 `ChunkGraph`를 만든다.
+    """Build candidate links with explicit, fail-fast store selection.
 
-    `vector_backend='auto'`는 Qdrant 연결을 먼저 시도하고, 실패하면
-    메모리 계산으로 내려간다. DB가 없는 환경에서도 생성이 끊기지 않게
-    하려는 것이며, 어느 경로를 썼는지는 실행 로그에 남는다.
+    With auto selection, a live graph uses Qdrant's indexed vectors; a local
+    corpus uses local vectors. A failed live store never becomes a mock run.
     """
+    if vector_backend not in {"auto", "qdrant", "local"}:
+        raise ValueError(f"Unknown vector backend: {vector_backend}")
+    if top_k < 1:
+        raise ValueError("top_k must be positive")
     chunks = list(chunks)
-    links: list[ChunkLink] = []
-
-    if use_graph:
-        try:
-            links.extend(graph_links(chunks, settings))
-        except Exception:  # noqa: BLE001 - 그래프가 없어도 벡터로 진행한다
-            links.extend(same_paper_links(chunks))
-    else:
-        links.extend(same_paper_links(chunks))
+    links = graph_links(chunks, settings) if use_graph else same_paper_links(chunks)
 
     if use_vector:
-        if vector_backend in {"auto", "qdrant"}:
-            try:
-                links.extend(
-                    vector_links_qdrant(
-                        chunks, settings, top_k=top_k, min_score=min_score
-                    )
-                )
-            except Exception:  # noqa: BLE001
-                if vector_backend == "qdrant":
-                    raise
-                links.extend(
-                    vector_links_local(chunks, top_k=top_k, min_score=min_score)
-                )
+        backend = ("qdrant" if use_graph else "local") if vector_backend == "auto" else vector_backend
+        if backend == "qdrant":
+            links.extend(vector_links_qdrant(chunks, settings, top_k=top_k, min_score=min_score))
         else:
-            links.extend(
-                vector_links_local(chunks, top_k=top_k, min_score=min_score)
-            )
+            embedder = build_embedder(settings.embedding) if settings is not None else build_embedder()
+            try:
+                links.extend(vector_links_local(
+                    chunks, embedder=embedder, top_k=top_k, min_score=min_score
+                ))
+            finally:
+                embedder.close()
 
     return ChunkGraph(chunks=chunks, links=_dedupe(links))

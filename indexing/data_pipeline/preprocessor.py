@@ -1,15 +1,19 @@
 """논문 본문을 Markdown으로 확보한다.
 
-순서는 두 단계다.
+arXiv PDF를 내려받아 pymupdf4llm으로 변환한다. 경로는 이것 하나뿐이다.
 
-1. `https://huggingface.co/papers/{paper_id}.md` 를 먼저 시도한다. HF가 arXiv
-   HTML을 변환해 주므로 PDF 파싱보다 결과가 깨끗하다.
-2. 유효한 Markdown이 아니면 PDF를 임시 파일로 내려받아 pymupdf4llm으로
-   변환한다.
+한때 `https://huggingface.co/papers/{paper_id}.md` 를 먼저 시도했다. HF가 arXiv
+HTML을 변환해 주므로 PDF 파싱보다 깨끗할 것으로 봤지만 실측 결과는 반대였다.
+Daily Papers 25편 표본에서 10편은 `.md` 가 아예 없었고(404), Markdown을 받은
+15편 중 11편은 ATX 제목이 하나도 없어 논문 전체가 단일 섹션이 됐다. 제목이
+살아 있는 논문은 4편뿐이라 Chunker의 섹션 인식이 사실상 놀고 있었다.
 
-없는 논문의 `.md` 주소는 404와 함께 HTML 오류 페이지를 돌려준다. 상태 코드만
-믿으면 HTML 본문을 Markdown으로 착각하므로 content-type과 본문 형태를 함께
-확인한다.
+수식이 제목으로 둔갑하기도 했다. arXiv HTML 변환본은 수식을 토큰마다 줄바꿈해
+내는데, `=` 한 글자만 있는 줄이 setext 밑줄로 인식돼 바로 윗줄의 `𝐿`이 제목이
+됐다(2608.05042). 그 논문의 섹션 17개가 전부 수식 조각이었다.
+
+같은 논문을 PDF로 변환하면 실제 섹션 구조가 복원된다. 비용은 편당 10초
+안팎(다운로드 + 변환)이고, 한 달치 배치에서 PDF 확보 실패는 1건이었다.
 
 PDF와 Markdown 중간 결과물은 저장하지 않는다. PDF는 변환 직후 삭제되는 임시
 디렉터리에만 존재한다.
@@ -17,9 +21,13 @@ PDF와 Markdown 중간 결과물은 저장하지 않는다. PDF는 변환 직후
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
 import re
+import sys
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -31,14 +39,16 @@ from data_pipeline.models import PaperMarkdown, PaperMetadata
 
 logger = logging.getLogger(__name__)
 
-MARKDOWN_PATH = "/papers/{paper_id}.md"
-
-# HF Markdown 응답 앞부분에 붙는 머리말. 본문은 이 표시 뒤부터다.
-_CONTENT_MARKER = "Markdown Content:"
-_HTML_PREFIXES = ("<!doctype", "<html", "<?xml")
 _UNSAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]")
 
 PdfConverter = Callable[[Path], str]
+
+# 429/5xx, 전송 중단, rate limit HTML처럼 다시 받으면 될 가능성이 있는 실패.
+_RETRYABLE_STATUS = {429}
+
+
+class _TransientDownloadError(Exception):
+    """다시 시도할 가치가 있는 다운로드 실패."""
 
 
 def pymupdf4llm_to_markdown(pdf_path: Path) -> str:
@@ -49,11 +59,32 @@ def pymupdf4llm_to_markdown(pdf_path: Path) -> str:
         raise PreprocessingError(
             "pymupdf4llm이 설치되어 있지 않습니다. indexing에서 pip install -e '.[dev]'를 실행하세요."
         ) from exc
-    return pymupdf4llm.to_markdown(str(pdf_path))
+
+    with _stdout_to_stderr():
+        return pymupdf4llm.to_markdown(str(pdf_path))
+
+
+@contextlib.contextmanager
+def _stdout_to_stderr():
+    """변환 중 표준출력에 나가는 것을 표준오류로 돌린다.
+
+    pymupdf4llm은 파서 경고와 OCR 진행 상황을 찍는데, CLI의 `--json` 출력이
+    표준출력이라 그대로 두면 JSON이 깨진다. MuPDF가 네이티브 레벨에서 쓰므로
+    `contextlib.redirect_stdout`으로는 잡히지 않아 파일 디스크립터를 바꾼다.
+    """
+    sys.stdout.flush()
+    saved = os.dup(1)
+    try:
+        os.dup2(2, 1)
+        yield
+    finally:
+        sys.stdout.flush()
+        os.dup2(saved, 1)
+        os.close(saved)
 
 
 class Preprocessor:
-    """논문 PDF/Markdown을 정규화된 Markdown 하나로 만든다.
+    """논문 PDF를 정규화된 Markdown 하나로 만든다.
 
     `client`와 `pdf_converter`를 주입하면 네트워크와 PDF 변환 없이 테스트할 수
     있다. 둘 다 느리고 불안정한 경계라 기본 구현을 밖에서 갈아끼울 수 있게 뒀다.
@@ -67,24 +98,16 @@ class Preprocessor:
     ) -> None:
         self.settings = settings or default_settings
         self._owns_client = client is None
+        # PDF 주소는 절대 URL(arxiv.org)이라 base_url을 두지 않는다.
         self.client = client or httpx.Client(
-            base_url=self.settings.hf_base_url,
             timeout=self.settings.hf_timeout_s,
             headers={"User-Agent": self.settings.user_agent},
             follow_redirects=True,
         )
         self.pdf_converter = pdf_converter or pymupdf4llm_to_markdown
+        self._last_request_at: float | None = None
 
     def to_markdown(self, metadata: PaperMetadata) -> PaperMarkdown:
-        text = self._fetch_hf_markdown(metadata.paper_id)
-        if text is not None:
-            return PaperMarkdown(
-                paper_id=metadata.paper_id, text=text, source="hf-markdown"
-            )
-
-        logger.info(
-            "HF Markdown을 쓸 수 없어 PDF로 전환합니다 paper_id=%s", metadata.paper_id
-        )
         return PaperMarkdown(
             paper_id=metadata.paper_id,
             text=self._convert_pdf(metadata),
@@ -95,51 +118,9 @@ class Preprocessor:
         if self._owns_client:
             self.client.close()
 
-    # ------------------------------------------------------------------
-    # 1단계: HF Markdown
-    # ------------------------------------------------------------------
-    def _fetch_hf_markdown(self, paper_id: str) -> str | None:
-        """유효한 Markdown이면 본문을, 아니면 `None`을 돌려준다.
-
-        여기서 예외를 던지지 않는 이유는 실패가 곧 PDF 경로로의 정상적인
-        분기이기 때문이다.
-        """
-        path = MARKDOWN_PATH.format(paper_id=paper_id)
-        try:
-            response = self.client.get(path)
-        except httpx.HTTPError as exc:
-            logger.warning("Markdown 요청 실패 paper_id=%s error=%s", paper_id, exc)
-            return None
-
-        if response.status_code >= 400:
-            logger.info(
-                "Markdown 응답 없음 paper_id=%s status=%d", paper_id, response.status_code
-            )
-            return None
-
-        content_type = response.headers.get("content-type", "")
-        if "html" in content_type.lower():
-            logger.info(
-                "Markdown이 아닌 응답 paper_id=%s content-type=%s", paper_id, content_type
-            )
-            return None
-
-        text = _strip_hf_header(response.text)
-        if not _looks_like_markdown(text, self.settings.markdown_min_chars):
-            logger.info("Markdown 본문이 유효하지 않음 paper_id=%s", paper_id)
-            return None
-
-        logger.debug("HF Markdown 확보 paper_id=%s chars=%d", paper_id, len(text))
-        return text
-
-    # ------------------------------------------------------------------
-    # 2단계: PDF → Markdown
-    # ------------------------------------------------------------------
     def _convert_pdf(self, metadata: PaperMetadata) -> str:
         if not metadata.pdf_url:
-            raise PreprocessingError(
-                f"{metadata.paper_id}: Markdown을 받지 못했고 PDF 주소도 없습니다"
-            )
+            raise PreprocessingError(f"{metadata.paper_id}: PDF 주소가 없습니다")
 
         with tempfile.TemporaryDirectory(prefix="linkpaper-pdf-") as tmp_dir:
             # paper_id에 '/'가 들어가는 구형 arXiv ID가 있으므로 파일명을 정규화한다.
@@ -156,45 +137,81 @@ class Preprocessor:
                     f"{metadata.paper_id}: PDF 변환 실패 - {type(exc).__name__}: {exc}"
                 ) from exc
 
-        if not text or not text.strip():
-            raise PreprocessingError(f"{metadata.paper_id}: PDF 변환 결과가 비어 있습니다")
+        # 스캔본처럼 텍스트 레이어가 없는 PDF는 변환 결과가 거의 비어 나온다.
+        # 그대로 두면 본문 없는 논문이 청크 몇 개로 인덱싱된다.
+        stripped = text.strip() if text else ""
+        if len(stripped) < self.settings.markdown_min_chars:
+            raise PreprocessingError(
+                f"{metadata.paper_id}: PDF 변환 결과가 너무 짧습니다 "
+                f"({len(stripped)}자 < {self.settings.markdown_min_chars}자)"
+            )
 
         logger.debug("PDF 변환 완료 paper_id=%s chars=%d", metadata.paper_id, len(text))
         return text
 
     def _download_pdf(self, pdf_url: str, destination: Path) -> None:
+        last_error = ""
+        for attempt in range(1, self.settings.pdf_max_retries + 1):
+            self._throttle()
+            try:
+                self._download_once(pdf_url, destination)
+            except _TransientDownloadError as exc:
+                last_error = str(exc)
+            else:
+                return
+
+            if attempt < self.settings.pdf_max_retries:
+                delay = self.settings.pdf_backoff_s * (2 ** (attempt - 1))
+                logger.warning(
+                    "PDF 다운로드 재시도 %d/%d url=%s delay=%.1fs error=%s",
+                    attempt,
+                    self.settings.pdf_max_retries,
+                    pdf_url,
+                    delay,
+                    last_error,
+                )
+                if delay > 0:
+                    time.sleep(delay)
+
+        raise PreprocessingError(f"PDF 다운로드 실패 {pdf_url} - {last_error}")
+
+    def _throttle(self) -> None:
+        """arXiv 요청 사이에 최소 간격을 둔다.
+
+        PDF 변환이 논문당 5~25초씩 걸려서 대개는 저절로 간격이 생긴다. 변환이
+        빨랐던 논문 뒤에서만 실제로 기다리므로 배치 전체 시간에는 거의 영향이
+        없으면서 요청이 몰리는 구간만 눌러 준다.
+        """
+        delay = self.settings.pdf_request_delay_s
+        if delay > 0 and self._last_request_at is not None:
+            waited = time.monotonic() - self._last_request_at
+            if waited < delay:
+                time.sleep(delay - waited)
+        self._last_request_at = time.monotonic()
+
+    def _download_once(self, pdf_url: str, destination: Path) -> None:
         try:
             with self.client.stream(
                 "GET", pdf_url, timeout=self.settings.pdf_timeout_s
             ) as response:
                 if response.status_code >= 400:
-                    raise PreprocessingError(
-                        f"PDF 다운로드 실패 {pdf_url} - HTTP {response.status_code}"
-                    )
+                    message = f"HTTP {response.status_code}"
+                    # 4xx는 주소 자체가 틀린 경우라 다시 받아도 결과가 같다.
+                    if (
+                        response.status_code >= 500
+                        or response.status_code in _RETRYABLE_STATUS
+                    ):
+                        raise _TransientDownloadError(message)
+                    raise PreprocessingError(f"PDF 다운로드 실패 {pdf_url} - {message}")
                 with destination.open("wb") as handle:
                     for block in response.iter_bytes():
                         handle.write(block)
         except httpx.HTTPError as exc:
-            raise PreprocessingError(
-                f"PDF 다운로드 실패 {pdf_url} - {type(exc).__name__}: {exc}"
-            ) from exc
+            # 전송이 중간에 끊긴 경우가 여기로 온다. 받다 만 파일은 다음 시도의
+            # `open("wb")`가 덮어쓴다.
+            raise _TransientDownloadError(f"{type(exc).__name__}: {exc}") from exc
 
         # arXiv는 점검 중이거나 rate limit에 걸리면 200으로 HTML을 준다.
         with destination.open("rb") as handle:
             if handle.read(5) != b"%PDF-":
-                raise PreprocessingError(f"PDF가 아닌 응답입니다: {pdf_url}")
-
-
-def _strip_hf_header(text: str) -> str:
-    """`Title:` / `URL Source:` 로 시작하는 HF 머리말을 떼어낸다."""
-    marker = text.find(_CONTENT_MARKER)
-    if marker == -1:
-        return text.strip()
-    return text[marker + len(_CONTENT_MARKER) :].strip()
-
-
-def _looks_like_markdown(text: str, min_chars: int) -> bool:
-    stripped = text.strip()
-    if len(stripped) < min_chars:
-        return False
-    return not stripped[:200].lower().lstrip().startswith(_HTML_PREFIXES)
+                raise _TransientDownloadError("PDF가 아닌 응답입니다")

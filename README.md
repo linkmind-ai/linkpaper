@@ -13,6 +13,8 @@
 [![Docker](https://img.shields.io/badge/Docker-29.6-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 
+🔬[LinkMind LAB research blog](https://linkmind.tistory.com/)
+
 
 </div>
 

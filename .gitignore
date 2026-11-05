@@ -18,3 +18,9 @@ dist
 .env
 .DS_Store
 *.local
+<<<<<<< HEAD
+=======
+>>>>>>> bc4cc030e1c00936220d2a157259def10683b3f1
+
+logs/
+>>>>>>> beec4d7c6887f072d1f40b62c32e0db16895fe0d

@@ -64,7 +64,7 @@ class QdrantSettings(BaseModel):
 
     url: str = "http://localhost:6333"
     api_key: str | None = None
-    collection: str = "linkpaper_chunks"
+    collection: str = "linkpaper_chunks_v1"
     vector_name: str | None = None
     timeout_s: float = 30.0
     prefer_grpc: bool = False
@@ -73,7 +73,7 @@ class QdrantSettings(BaseModel):
     def from_env(cls, **overrides: Any) -> QdrantSettings:
         base: dict[str, Any] = {
             "url": _env("QDRANT_URL", "http://localhost:6333"),
-            "collection": _env("QDRANT_COLLECTION", "linkpaper_chunks"),
+            "collection": _env("QDRANT_COLLECTION", "linkpaper_chunks_v1"),
         }
         api_key = os.environ.get("QDRANT_API_KEY")
         if api_key:

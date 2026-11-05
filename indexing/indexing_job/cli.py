@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 from data_pipeline.config import configure_logging
 from indexing_job.job import IndexingJob, IndexingRun
@@ -23,7 +23,13 @@ def build_parser() -> argparse.ArgumentParser:
     paper_parser.add_argument("--global-corpus", action="store_true")
 
     daily_parser = subparsers.add_parser("daily", help="특정 날짜 논문을 적재한다")
-    daily_parser.add_argument("--date", help="YYYY-MM-DD (기본값: 오늘)")
+    daily_window = daily_parser.add_mutually_exclusive_group()
+    daily_window.add_argument("--date", help="YYYY-MM-DD (기본값: 오늘)")
+    daily_window.add_argument(
+        "--days-ago",
+        type=int,
+        help="UTC 기준 N일 전 날짜를 적재한다 (cron용, 1 = 어제)",
+    )
     daily_parser.add_argument("--limit", type=int)
     daily_parser.add_argument("--global-corpus", action="store_true")
 
@@ -42,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
                 run = job.paper(args.paper_id, in_global_corpus=args.global_corpus)
             elif args.command == "daily":
                 run = job.daily(
-                    _parse_date(args.date) if args.date else None,
+                    _resolve_day(args.date, args.days_ago),
                     limit=args.limit,
                     in_global_corpus=args.global_corpus,
                 )
@@ -72,6 +78,17 @@ def _print_summary(run: IndexingRun) -> None:
             f"  실패 {failure.paper_id} [{failure.stage}] {failure.error}",
             file=sys.stderr,
         )
+
+
+def _resolve_day(value: str | None, days_ago: int | None) -> date | None:
+    if value:
+        return _parse_date(value)
+    if days_ago is None:
+        return None
+    if days_ago < 0:
+        raise ValueError(f"--days-ago는 0 이상이어야 합니다: {days_ago}")
+    # HF Daily Papers의 날짜 경계가 UTC라 실행 호스트의 시간대와 무관하게 계산한다.
+    return datetime.now(UTC).date() - timedelta(days=days_ago)
 
 
 def _parse_date(value: str) -> date:

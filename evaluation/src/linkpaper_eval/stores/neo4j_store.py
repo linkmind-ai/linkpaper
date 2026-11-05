@@ -28,7 +28,14 @@ _CHUNK_PROJECTION = """
     c.paperId AS paper_id,
     c.text AS text,
     c.section AS section,
-    c.chunkIndex AS chunk_index
+    c.chunkIndex AS chunk_index,
+    c.sectionPath AS section_path,
+    c.contentHash AS content_hash,
+    c:GlobalChunk AS in_global_corpus,
+    head([(p:Paper)-[:HAS_CHUNK]->(c) | p.title]) AS title,
+    head([(p:Paper)-[:HAS_CHUNK]->(c) | p.sourceVersion]) AS source_version,
+    head([(p:Paper)-[:HAS_CHUNK]->(c) | p.schemaVersion]) AS schema_version,
+    head([(p:Paper)-[:HAS_CHUNK]->(c) | toString(p.publishedAt)]) AS published_at
 """
 
 
@@ -107,7 +114,9 @@ class Neo4jStore:
         SKIP/LIMIT 페이지네이션은 정렬 기준이 안정적이어야 중복·누락이
         없다. `chunkId`가 전역 고유하므로 이것으로 정렬한다.
         """
-        filter_clause = "WHERE c.paperId IN $paper_ids" if paper_ids else ""
+        if paper_ids is not None and not paper_ids:
+            return
+        filter_clause = "WHERE c.paperId IN $paper_ids" if paper_ids is not None else ""
         cypher = f"""
         MATCH (c:Chunk)
         {filter_clause}
@@ -191,6 +200,7 @@ class Neo4jStore:
             MATCH (p:Paper)-[:CITES*1..{depth}]-(related:Paper)
             WHERE p.paperId IN $paper_ids AND NOT related.paperId IN $paper_ids
             RETURN DISTINCT related.paperId AS paper_id
+            ORDER BY paper_id
             LIMIT $limit
             """,
             {"paper_ids": list(paper_ids), "limit": limit},
@@ -220,7 +230,9 @@ class Neo4jStore:
             """
             MATCH (a:Chunk)-[:NEXT_CHUNK]->(b:Chunk)
             WHERE a.chunkId IN $ids AND b.chunkId IN $ids
-            RETURN a.chunkId AS source, b.chunkId AS target
+            RETURN a.chunkId AS source, b.chunkId AS target,
+                   'NEXT_CHUNK' AS relation_type
+            ORDER BY source, target
             LIMIT $limit
             """,
             {"ids": ids, "limit": max_edges},
@@ -233,7 +245,9 @@ class Neo4jStore:
                   -[:HAS_CHUNK]->(b:Chunk)
             WHERE a.chunkId IN $ids AND b.chunkId IN $ids
             RETURN a.chunkId AS source, b.chunkId AS target,
-                   p1.paperId AS source_paper, p2.paperId AS target_paper
+                   p1.paperId AS source_paper, p2.paperId AS target_paper,
+                   'CITES' AS relation_type
+            ORDER BY source, target
             LIMIT $limit
             """,
             {"ids": ids, "limit": max_edges},
@@ -246,7 +260,9 @@ class Neo4jStore:
             WHERE a.chunkId IN $ids AND b.chunkId IN $ids
                   AND a.chunkId < b.chunkId AND a.paperId <> b.paperId
             RETURN a.chunkId AS source, b.chunkId AS target,
-                   e.entityId AS entity_id
+                   e.entityId AS entity_id, e.name AS entity_name,
+                   e.entityType AS entity_type, 'MENTIONS' AS relation_type
+            ORDER BY source, target, entity_id
             LIMIT $limit
             """,
             {"ids": ids, "limit": max_edges},

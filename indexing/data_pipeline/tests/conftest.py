@@ -19,12 +19,15 @@ def settings() -> IndexingSettings:
         hf_backoff_s=0.0,
         hf_page_size=2,
         markdown_min_chars=50,
+        # 대기 없이 재시도 경로를 검증한다.
+        pdf_request_delay_s=0.0,
+        pdf_backoff_s=0.0,
     )
 
 
 @pytest.fixture
 def paper_markdown() -> str:
-    """HF `.md` 응답을 본뜬 논문 본문."""
+    """pymupdf4llm 변환 결과를 본뜬 논문 본문. 제목은 굵게 감싼 ATX다."""
     return (FIXTURES / "paper.md").read_text(encoding="utf-8")
 
 

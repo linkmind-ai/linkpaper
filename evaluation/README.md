@@ -1,5 +1,10 @@
 # 평가
 
+이슈 #9의 **합성 데이터셋 생성·재생성 → vector RAG → 네 Ragas 지표** 실행은
+[합성 벤치마크 가이드](../docs/synthetic-benchmark.md)를 참고한다.
+`configs/vector.yaml`을 사용하고 `bench score`를 실행하면 faithfulness,
+answer relevancy, context precision, context recall을 모두 계산한다.
+
 LinkPaper GraphRAG 파이프라인의 검색·생성·추출 품질과 운영 지표를 측정한다.
 
 백엔드 구현 여부와 무관하게 동작하는 것이 이 하네스의 설계 목표다. 기본
@@ -81,8 +86,9 @@ linkpaper-eval run --config configs/retrieval.yaml --target http       # 백엔�
 - `http` — 백엔드 `POST /api/v1/conversations/{id}/messages` 호출.
 - `hybrid` — Qdrant 벡터 검색 + Neo4j 그래프 확장. 백엔드를 거치지 않고
   인덱스에 직접 붙어 검색만 잰다.
-- `vector` — `hybrid`에서 그래프 확장만 끈 대조군. 두 결과의 차이가 그래프가
-  기여한 몫이다.
+- `vector` — Qdrant 전체 컬렉션 검색 후 LLM 답변을 생성하는 품질 비교 기준.
+  실제 검색 본문을 저장해 Ragas 네 지표를 평가한다. 기존 검색 확장 대조군은
+  `configs/hybrid.yaml`의 `vector_retrieval`에 유지한다.
 
 베이스라인은 단순한 하한선 역할을 한다. 그래프 확장과 벡터 검색을 붙였는데
 BM25보다 낮게 나온다면 파이프라인에 문제가 있다는 신호다.

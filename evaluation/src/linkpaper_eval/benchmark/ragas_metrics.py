@@ -1,83 +1,79 @@
-"""ragas 지표로 실행 결과를 사후 채점한다.
+"""Score saved responses with Ragas and preserve per-case judge failures.
 
-기존 지표는 결정적이고 비용이 0이지만 어휘 기반이라 한계가 있다.
-`groundedness_lexical`이 1.0이어도 답변이 질문에 답하지 못할 수 있다.
-ragas 지표는 LLM 심판을 써서 그 간극을 메운다.
-
-실행 중이 아니라 실행이 끝난 뒤에 채점한다. 이유는 두 가지다.
-
-1. `runner.run_suite`를 건드리지 않는다. 기존 실행 경로에 LLM 호출이
-   끼어들면 오프라인 CI가 깨진다.
-2. 같은 실행 결과를 여러 번 다시 채점할 수 있다. 지표나 심판 모델을
-   바꿔 볼 때 파이프라인을 다시 돌릴 필요가 없다.
-
-점수는 `runs/<run_id>/ragas.json`에 저장하고 `ragas.` 접두사를 붙여
-결정적 지표와 섞이지 않게 한다.
+The four default metrics are judged independently: a missing reference must not
+prevent reference-free evaluation, and a failed judge call is never a zero score.
 """
 
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from linkpaper_eval.benchmark.download import read_jsonl
-from linkpaper_eval.ragas_runtime import build_embeddings, build_llm, require_ragas
+from linkpaper_eval.ragas_runtime import (
+    build_embeddings, build_llm, ragas_version, require_ragas,
+)
 
-# 지표 이름 → ragas 클래스 후보. ragas 버전에 따라 이름이 달라서
-# 후보를 순서대로 시도한다.
 _METRIC_CANDIDATES: dict[str, tuple[str, ...]] = {
     "faithfulness": ("Faithfulness",),
     "answer_relevancy": ("ResponseRelevancy", "AnswerRelevancy"),
-    "context_precision": (
-        "LLMContextPrecisionWithReference",
-        "ContextPrecision",
-    ),
+    "context_precision": ("LLMContextPrecisionWithReference", "ContextPrecision"),
     "context_recall": ("LLMContextRecall", "ContextRecall"),
     "factual_correctness": ("FactualCorrectness",),
     "semantic_similarity": ("SemanticSimilarity",),
 }
-
-DEFAULT_METRICS = ("faithfulness", "answer_relevancy", "context_recall")
-
-# 임베딩이 반드시 있어야 동작하는 지표.
+DEFAULT_METRICS = (
+    "faithfulness", "answer_relevancy", "context_precision", "context_recall"
+)
 _NEEDS_EMBEDDINGS = {"answer_relevancy", "semantic_similarity"}
+_NEEDS_REFERENCE = {
+    "context_precision", "context_recall", "factual_correctness", "semantic_similarity"
+}
+_NEEDS_CONTEXT = {"faithfulness", "context_precision", "context_recall"}
+
+
+class RagasCaseScore(BaseModel):
+    case_id: str
+    scores: dict[str, float] = Field(default_factory=dict)
+    errors: dict[str, str] = Field(default_factory=dict)
 
 
 class RagasScoreReport(BaseModel):
     run_id: str
+    judge_model: str | None = None
+    ragas_version: str | None = None
     metrics: list[str] = Field(default_factory=list)
     aggregate: dict[str, float] = Field(default_factory=dict)
+    metric_counts: dict[str, int] = Field(default_factory=dict)
     sample_count: int = 0
     skipped: int = 0
+    status: Literal["complete", "partial", "failed"] = "failed"
     warnings: list[str] = Field(default_factory=list)
+    cases: list[RagasCaseScore] = Field(default_factory=list)
 
 
 def _build_metric(name: str, llm: Any, embeddings: Any) -> Any:
     import ragas.metrics as ragas_metrics
 
-    for class_name in _METRIC_CANDIDATES.get(name, (name,)):
+    for class_name in _METRIC_CANDIDATES[name]:
         cls = getattr(ragas_metrics, class_name, None)
         if cls is None:
             continue
-        kwargs: dict[str, Any] = {"llm": llm}
-        if name in _NEEDS_EMBEDDINGS and embeddings is not None:
+        kwargs: dict[str, Any] = {}
+        if name != "semantic_similarity":
+            kwargs["llm"] = llm
+        if name in _NEEDS_EMBEDDINGS:
             kwargs["embeddings"] = embeddings
-        try:
-            return cls(**kwargs)
-        except TypeError:
-            # 일부 지표는 llm을 생성자에서 받지 않는다.
-            try:
-                return cls()
-            except Exception:  # noqa: BLE001 - 다음 후보로 넘어간다
-                continue
+        return cls(**kwargs)
     raise ValueError(f"ragas에서 지표를 찾을 수 없습니다: {name}")
 
 
 def _load_corpus_texts(corpus_path: Path | None) -> dict[str, str]:
-    if corpus_path is None or not corpus_path.exists():
+    if corpus_path is None:
         return {}
     return {
         row["chunk_id"]: row.get("text", "")
@@ -87,14 +83,51 @@ def _load_corpus_texts(corpus_path: Path | None) -> dict[str, str]:
 
 
 def _load_references(dataset_path: Path | None) -> dict[str, str]:
-    if dataset_path is None or not dataset_path.exists():
+    if dataset_path is None:
         return {}
-    references: dict[str, str] = {}
-    for row in read_jsonl(dataset_path):
-        answer = row.get("gold_answer")
-        if row.get("case_id") and answer:
-            references[row["case_id"]] = answer
-    return references
+    return {
+        row["case_id"]: row["gold_answer"]
+        for row in read_jsonl(dataset_path)
+        if row.get("case_id") and row.get("gold_answer")
+    }
+
+
+def _contexts(row: dict[str, Any], texts: dict[str, str]) -> list[str] | None:
+    """Prefer saved evidence; do not silently judge a partial reconstruction."""
+    ids = row.get("retrieved_chunk_ids") or []
+    if "retrieved_contexts" in row:
+        contexts = row["retrieved_contexts"]
+        if not isinstance(contexts, list):
+            return None
+        if ids and len(contexts) != len(ids):
+            return None
+    elif ids and all(chunk_id in texts for chunk_id in ids):
+        contexts = [texts[chunk_id] for chunk_id in ids]
+    else:
+        return None
+    if any(not isinstance(value, str) or not value.strip() for value in contexts):
+        return None
+    return contexts
+
+
+def _save_report(run_dir: Path, report: RagasScoreReport) -> RagasScoreReport:
+    report.sample_count = sum(bool(case.scores) for case in report.cases)
+    report.skipped = len(report.cases) - report.sample_count
+    for metric in report.metrics:
+        key = f"ragas.{metric}"
+        values = [case.scores[key] for case in report.cases if key in case.scores]
+        report.metric_counts[key] = len(values)
+        if values:
+            report.aggregate[key] = sum(values) / len(values)
+        else:
+            report.warnings.append(f"{key}: 유효한 점수가 없습니다.")
+    if report.aggregate:
+        report.status = "partial" if any(case.errors for case in report.cases) else "complete"
+    (run_dir / "ragas.json").write_text(
+        json.dumps(report.model_dump(), indent=2, ensure_ascii=False, allow_nan=False),
+        encoding="utf-8",
+    )
+    return report
 
 
 def score_run(
@@ -105,82 +138,110 @@ def score_run(
     model: str = "gpt-4o-mini",
     limit: int | None = None,
 ) -> RagasScoreReport:
-    """`runs/<run_id>/cases.jsonl`을 ragas로 채점한다.
+    """Judge saved run evidence; legacy runs can restore texts from a corpus.
 
-    검색 근거 텍스트는 `cases.jsonl`에 없으므로 코퍼스에서 `chunk_id`로
-    복원한다. 코퍼스를 주지 않으면 컨텍스트 없이 채점되고, 컨텍스트가
-    필요한 지표는 의미가 없어지므로 경고를 남긴다.
+    Missing inputs and non-finite judge results are recorded per metric and
+    excluded from its denominator. An explicitly empty retrieval has context
+    precision/recall zero, so retrieval failures cannot inflate the mean.
     """
-    require_ragas()
-
-    from ragas import EvaluationDataset, evaluate
-    from ragas.dataset_schema import SingleTurnSample
-
+    if not metrics or len(set(metrics)) != len(metrics):
+        raise ValueError("Choose at least one unique Ragas metric.")
+    unknown = set(metrics) - _METRIC_CANDIDATES.keys()
+    if unknown:
+        raise ValueError(f"Unknown Ragas metrics: {sorted(unknown)}")
+    if limit is not None and limit < 1:
+        raise ValueError("limit must be positive")
     cases_path = run_dir / "cases.jsonl"
     if not cases_path.exists():
         raise FileNotFoundError(f"실행 결과를 찾을 수 없습니다: {cases_path}")
+    require_ragas()
+    from ragas import EvaluationDataset, evaluate
+    from ragas.dataset_schema import SingleTurnSample
 
-    report = RagasScoreReport(run_id=run_dir.name, metrics=list(metrics))
     texts = _load_corpus_texts(corpus_path)
     references = _load_references(dataset_path)
-    if not texts:
-        report.warnings.append(
-            "코퍼스를 찾지 못해 retrieved_contexts가 비어 있습니다. "
-            "context_* 와 faithfulness 점수는 신뢰할 수 없습니다."
-        )
+    report = RagasScoreReport(
+        run_id=run_dir.name, judge_model=model, ragas_version=ragas_version(),
+        metrics=list(metrics),
+    )
+    eligible: dict[str, list[tuple[RagasCaseScore, Any]]] = {name: [] for name in metrics}
 
-    samples = []
-    for row in read_jsonl(cases_path):
-        if limit is not None and len(samples) >= limit:
-            break
-        if row.get("error"):
-            report.skipped += 1
-            continue
+    for row in read_jsonl(cases_path)[:limit]:
+        case = RagasCaseScore(case_id=row.get("case_id", ""))
+        report.cases.append(case)
+        contexts = _contexts(row, texts)
+        reference = row.get("reference") or references.get(case.case_id)
         answer = (row.get("answer") or "").strip()
-        if not answer:
-            report.skipped += 1
-            continue
-
-        contexts = [
-            texts[chunk_id]
-            for chunk_id in row.get("retrieved_chunk_ids") or []
-            if chunk_id in texts
-        ]
-        samples.append(
-            SingleTurnSample(
-                user_input=row.get("question", ""),
-                response=answer,
-                retrieved_contexts=contexts,
-                reference=references.get(row.get("case_id", ""), ""),
+        question = (row.get("question") or "").strip()
+        for name in metrics:
+            key = f"ragas.{name}"
+            error = None
+            if row.get("error"):
+                error = f"Target failed: {row['error']}"
+            elif not question:
+                error = "Missing question"
+            elif not answer:
+                error = "Missing generated answer"
+            elif name in _NEEDS_REFERENCE and not (reference or "").strip():
+                error = "Missing reference answer"
+            elif name in _NEEDS_CONTEXT and contexts is None:
+                error = "Missing or incomplete retrieved context text"
+            if error:
+                case.errors[key] = error
+                continue
+            if contexts == [] and name in {"context_precision", "context_recall"}:
+                case.scores[key] = 0.0
+                continue
+            sample = SingleTurnSample(
+                user_input=question, response=answer,
+                retrieved_contexts=contexts, reference=reference,
             )
+            eligible[name].append((case, sample))
+
+    if not any(eligible.values()):
+        return _save_report(run_dir, report)
+
+    try:
+        llm = build_llm(model)
+        embeddings = (
+            build_embeddings()
+            if any(eligible.get(name) for name in _NEEDS_EMBEDDINGS) else None
         )
+    except Exception as exc:
+        for name, rows in eligible.items():
+            for case, _ in rows:
+                case.errors[f"ragas.{name}"] = f"Judge setup failed: {type(exc).__name__}: {exc}"
+        _save_report(run_dir, report)
+        raise
 
-    report.sample_count = len(samples)
-    if not samples:
-        report.warnings.append("채점할 샘플이 없습니다.")
-        return report
+    for name, rows in eligible.items():
+        if not rows:
+            continue
+        key = f"ragas.{name}"
+        try:
+            metric = _build_metric(name, llm, embeddings)
+            result = evaluate(
+                dataset=EvaluationDataset(samples=[sample for _, sample in rows]),
+                metrics=[metric], llm=llm, embeddings=embeddings,
+                raise_exceptions=False, show_progress=False,
+            )
+            # EvaluationResult is a dataclass, not an aggregate mapping. Its
+            # public scores list also retains the row-level failure locations.
+            scores = result.scores
+            if len(scores) != len(rows):
+                raise ValueError("Ragas returned a different number of score rows")
+            for (case, _), values in zip(rows, scores):
+                value = values.get(metric.name)
+                try:
+                    score = float(value)
+                except (TypeError, ValueError):
+                    score = math.nan
+                if not math.isfinite(score):
+                    case.errors[key] = "Judge returned a missing or non-finite score"
+                else:
+                    case.scores[key] = score
+        except Exception as exc:
+            for case, _ in rows:
+                case.errors[key] = f"Judge failed: {type(exc).__name__}: {exc}"
 
-    llm = build_llm(model)
-    embeddings = None
-    if any(name in _NEEDS_EMBEDDINGS for name in metrics):
-        embeddings = build_embeddings()
-
-    metric_objects = [_build_metric(name, llm, embeddings) for name in metrics]
-    result = evaluate(
-        dataset=EvaluationDataset(samples=samples),
-        metrics=metric_objects,
-        llm=llm,
-    )
-
-    scores = dict(result)
-    report.aggregate = {
-        f"ragas.{key}": float(value)
-        for key, value in scores.items()
-        if isinstance(value, (int, float))
-    }
-
-    (run_dir / "ragas.json").write_text(
-        json.dumps(report.model_dump(), indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    return report
+    return _save_report(run_dir, report)

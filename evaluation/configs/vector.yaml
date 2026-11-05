@@ -1,0 +1,28 @@
+# Full vector RAG: Qdrant retrieval, then an independent answer model.
+# Use the same embedding model/dimensions as the indexed collection.
+suite: full
+dataset: datasets/generated/linkpaper.jsonl
+
+target:
+  type: vector_rag
+  options:
+    top_k: 5
+    qdrant:
+      url: ${QDRANT_URL:-http://localhost:6333}
+      collection: ${QDRANT_COLLECTION:-linkpaper_chunks_v1}
+    embedding:
+      provider: ${LINKPAPER_EMBEDDING_PROVIDER:-openai}
+      model: ${LINKPAPER_EMBEDDING_MODEL:-text-embedding-3-small}
+      dimensions: ${LINKPAPER_EMBEDDING_DIMENSIONS:-1536}
+      base_url: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+    generation:
+      model: ${LINKPAPER_ANSWER_MODEL:-gpt-4o-mini}
+      base_url: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      temperature: 0.0
+      max_tokens: 1024
+
+k_values: [1, 3, 5]
+gates: {}
+run:
+  concurrency: 2
+  output_dir: runs

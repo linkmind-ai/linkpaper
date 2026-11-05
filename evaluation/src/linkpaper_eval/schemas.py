@@ -169,6 +169,10 @@ class CaseResult(BaseModel):
     answer: str = ""
     citations: list[str] = Field(default_factory=list)
     retrieved_chunk_ids: list[str] = Field(default_factory=list)
+    # Persist the exact ranked evidence supplied to the answer generator. This
+    # makes subsequent judging independent of a mutable database or corpus.
+    retrieved_contexts: list[str] = Field(default_factory=list)
+    reference: str | None = None
     tags: list[str] = Field(default_factory=list)
 
 

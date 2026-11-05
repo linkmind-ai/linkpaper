@@ -23,6 +23,7 @@ from linkpaper_eval.runner import save_run, run_suite
 from linkpaper_eval.schemas import RunResult
 
 _BUILTIN_TARGETS = {
+    "vector": {"type": "vector_rag", "options": {}},
     "baseline": {
         "type": "lexical_baseline",
         "options": {"corpus": "fixtures/mock_corpus.jsonl"},
@@ -47,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--dataset", help="설정의 dataset 경로를 덮어쓴다")
     run_parser.add_argument(
         "--target",
-        help="설정의 targets 블록 또는 내장 프리셋(baseline | http) 이름",
+        help="설정의 targets 블록 또는 내장 프리셋(baseline | http | vector) 이름",
     )
     run_parser.add_argument("--limit", type=int, help="앞에서 N개 케이스만 실행")
     run_parser.add_argument("--run-id", help="실행 ID를 직접 지정")

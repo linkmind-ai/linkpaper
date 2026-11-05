@@ -65,6 +65,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "seed", help="벤치마크 코퍼스를 Qdrant/Neo4j에 적재한다"
     )
     seed_parser.add_argument("--name", required=True)
+    seed_parser.add_argument("--collection", help="적재할 평가용 Qdrant 컬렉션 (Qdrant 적재 시 필수)")
     seed_parser.add_argument("--no-qdrant", action="store_true")
     seed_parser.add_argument("--no-neo4j", action="store_true")
     seed_parser.add_argument(
@@ -95,10 +96,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     )
     score_parser.add_argument("--run-id", required=True)
     score_parser.add_argument("--name", help="코퍼스와 정답을 가져올 벤치마크")
+    score_parser.add_argument("--corpus", help="이전 실행의 검색 근거를 복원할 JSONL")
+    score_parser.add_argument("--dataset", help="정답이 들어 있는 생성 데이터셋 JSONL")
     score_parser.add_argument("--suite", default="generation")
     score_parser.add_argument(
         "--metrics",
-        default="faithfulness,answer_relevancy,context_recall",
+        default="faithfulness,answer_relevancy,context_precision,context_recall",
         help="쉼표로 구분한 ragas 지표 이름",
     )
     score_parser.add_argument("--model", default="gpt-4o-mini")
@@ -110,6 +113,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
     clean = bench_sub.add_parser("clean", help="적재한 벤치마크 데이터를 지운다")
     clean.add_argument("--qdrant", action="store_true", help="컬렉션 삭제")
+    clean.add_argument("--collection", help="삭제할 Qdrant 컬렉션 (--qdrant 사용 시 필수)")
     clean.add_argument("--neo4j", action="store_true", help="벤치마크 노드 삭제")
     clean.set_defaults(handler=_cmd_clean)
 
@@ -134,12 +138,26 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "--vector-backend", default="auto", help="auto | qdrant | local"
     )
     testgen.add_argument("--model", default="gpt-4o-mini")
+    testgen.add_argument("--embedding-model", default="text-embedding-3-small")
     testgen.add_argument("--out", help="출력 JSONL 경로")
+    testgen.add_argument("--overwrite", action="store_true", help="기존 생성 산출물 교체")
     testgen.add_argument(
         "--save-kg", help="ragas KnowledgeGraph를 저장할 경로"
     )
     testgen.add_argument("--seed", type=int, default=20260804)
     testgen.set_defaults(handler=_cmd_testgen)
+
+    regenerate = subparsers.add_parser(
+        "testgen-regenerate", help="검증된 스냅샷·Ragas KG를 재사용해 평가셋을 재생성한다"
+    )
+    regenerate.add_argument("--manifest", required=True)
+    regenerate.add_argument("--out", required=True)
+    regenerate.add_argument("--size", type=int)
+    regenerate.add_argument("--seed", type=int)
+    regenerate.add_argument("--single-hop-ratio", type=float)
+    regenerate.add_argument("--model")
+    regenerate.add_argument("--overwrite", action="store_true")
+    regenerate.set_defaults(handler=_cmd_regenerate)
 
 
 # ----------------------------------------------------------------------
@@ -186,6 +204,9 @@ def _cmd_prepare(args: argparse.Namespace) -> int:
 def _cmd_seed(args: argparse.Namespace) -> int:
     from linkpaper_eval.benchmark.seed import seed
 
+    if not args.no_qdrant and not args.collection:
+        print("Qdrant 적재 대상은 --collection으로 명시하세요 (예: linkpaper_eval_qasper).", file=sys.stderr)
+        return 2
     root = evaluation_root()
     corpus = prepare_module.benchmark_dir(root, args.name) / "corpus.jsonl"
     if not corpus.exists():
@@ -198,6 +219,7 @@ def _cmd_seed(args: argparse.Namespace) -> int:
 
     report = seed(
         corpus,
+        settings=StoreSettings.from_env({"qdrant": {"collection": args.collection}}),
         to_qdrant=not args.no_qdrant,
         to_neo4j=not args.no_neo4j,
         recreate=args.recreate,
@@ -249,6 +271,10 @@ def _cmd_score(args: argparse.Namespace) -> int:
         directory = prepare_module.benchmark_dir(root, args.name)
         corpus = directory / "corpus.jsonl"
         dataset = directory / f"{args.suite}.jsonl"
+    if args.corpus:
+        corpus = Path(args.corpus)
+    if args.dataset:
+        dataset = Path(args.dataset)
 
     try:
         report = score_run(
@@ -267,7 +293,7 @@ def _cmd_score(args: argparse.Namespace) -> int:
     for warning in report.warnings:
         print(f"  경고: {warning}", file=sys.stderr)
     print(f"\n샘플 {report.sample_count}건 / 제외 {report.skipped}건", file=sys.stderr)
-    return 0
+    return 0 if report.status == "complete" else 1
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
@@ -336,8 +362,11 @@ def _cmd_clean(args: argparse.Namespace) -> int:
     if not args.qdrant and not args.neo4j:
         print("--qdrant 또는 --neo4j 중 하나를 지정하세요.", file=sys.stderr)
         return 2
+    if args.qdrant and not args.collection:
+        print("삭제할 컬렉션을 --collection으로 명시하세요.", file=sys.stderr)
+        return 2
 
-    settings = StoreSettings.from_env()
+    settings = StoreSettings.from_env({"qdrant": {"collection": args.collection}})
     if args.qdrant:
         from linkpaper_eval.stores.qdrant_store import QdrantStore
 
@@ -383,6 +412,8 @@ def _cmd_testgen(args: argparse.Namespace) -> int:
             model=args.model,
             knowledge_graph_path=Path(args.save_kg) if args.save_kg else None,
             seed=args.seed,
+            embedding_model_name=args.embedding_model,
+            overwrite=args.overwrite,
         )
     except Exception as exc:  # noqa: BLE001 - 원인을 그대로 보여 준다
         print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
@@ -392,9 +423,31 @@ def _cmd_testgen(args: argparse.Namespace) -> int:
     print(f"그래프: {json.dumps(result.graph_summary, ensure_ascii=False)}")
     print(f"{result.export_summary}")
     print(f"\n케이스 {result.case_count}건 → {result.output}")
+    print(f"재생성 매니페스트: {result.manifest}")
+    for warning in result.warnings:
+        print(f"  경고: {warning}", file=sys.stderr)
     if result.problems:
         print("\n검증 문제:", file=sys.stderr)
         for problem in result.problems[:20]:
             print(f"  - {problem}", file=sys.stderr)
         return 1
+    return 0
+
+
+def _cmd_regenerate(args: argparse.Namespace) -> int:
+    from linkpaper_eval.testgen.pipeline import regenerate
+
+    try:
+        result = regenerate(
+            Path(args.manifest), Path(args.out), size=args.size, seed=args.seed,
+            single_hop_ratio=args.single_hop_ratio, model=args.model,
+            overwrite=args.overwrite,
+        )
+    except Exception as exc:
+        print(f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
+    print(f"{result.export_summary}\n케이스 {result.case_count}건 → {result.output}")
+    print(f"재생성 매니페스트: {result.manifest}")
+    for warning in result.warnings:
+        print(f"  경고: {warning}", file=sys.stderr)
     return 0

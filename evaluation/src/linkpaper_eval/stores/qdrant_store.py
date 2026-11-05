@@ -23,12 +23,8 @@ _CLIENT_HINT = (
     "qdrant-client가 없습니다. `pip install -e '.[stores]'` 로 설치하세요."
 )
 
-# chunk_id → point UUID 변환용 고정 네임스페이스.
-_NAMESPACE = uuid.UUID("6f6e2f2d-6c69-6e6b-7061-706572000001")
-
-
 def point_id_for(chunk_id: str) -> str:
-    return str(uuid.uuid5(_NAMESPACE, chunk_id))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"linkpaper:chunk:{chunk_id}"))
 
 
 class QdrantStore:
@@ -183,9 +179,21 @@ class QdrantStore:
     # ------------------------------------------------------------------
 
     def iter_chunks(
-        self, limit: int | None = None, batch_size: int = 256
+        self,
+        limit: int | None = None,
+        batch_size: int = 256,
+        paper_ids: Sequence[str] | None = None,
     ) -> Iterator[ChunkRecord]:
         """컬렉션 전체를 scroll로 훑는다. 평가셋 생성의 입력으로 쓴다."""
+        from qdrant_client import models
+
+        scroll_filter = None
+        if paper_ids is not None:
+            if not paper_ids:
+                return
+            scroll_filter = models.Filter(must=[models.FieldCondition(
+                key="paper_id", match=models.MatchAny(any=list(paper_ids))
+            )])
         offset = None
         fetched = 0
         while True:
@@ -201,6 +209,7 @@ class QdrantStore:
                 offset=offset,
                 with_payload=True,
                 with_vectors=False,
+                scroll_filter=scroll_filter,
             )
             if not points:
                 return
@@ -210,11 +219,34 @@ class QdrantStore:
             if offset is None:
                 return
 
+    def vector_for_chunk(self, chunk_id: str) -> list[float] | None:
+        """Read the existing vector; never re-embed with a different model."""
+        points = self.client.retrieve(
+            collection_name=self.settings.collection,
+            ids=[point_id_for(chunk_id)],
+            with_payload=True,
+            with_vectors=True,
+        )
+        if not points:
+            # Neo4j intentionally retains reference chunks omitted by Qdrant.
+            return None
+        point = points[0]
+        if (point.payload or {}).get("chunk_id") != chunk_id:
+            raise ValueError(f"Qdrant point ID/payload mismatch for {chunk_id}")
+        vector = point.vector
+        if isinstance(vector, dict):
+            vector = vector.get(self.settings.vector_name)
+        if vector is None or not isinstance(vector, list):
+            raise ValueError(f"Missing dense vector for {chunk_id}")
+        return [float(value) for value in vector]
+
     def search(
         self,
         vector: Sequence[float],
         top_k: int = 10,
         paper_ids: Sequence[str] | None = None,
+        chunk_ids: Sequence[str] | None = None,
+        exclude_paper_ids: Sequence[str] | None = None,
     ) -> list[SearchHit]:
         """코사인 유사도 상위 `top_k`를 반환한다.
 
@@ -223,16 +255,20 @@ class QdrantStore:
         """
         from qdrant_client import models
 
-        query_filter = None
-        if paper_ids:
-            query_filter = models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="paper_id",
-                        match=models.MatchAny(any=list(paper_ids)),
-                    )
-                ]
-            )
+        must = []
+        for key, values in (("paper_id", paper_ids), ("chunk_id", chunk_ids)):
+            if values is not None:
+                if not values:
+                    return []
+                must.append(models.FieldCondition(
+                    key=key, match=models.MatchAny(any=list(values))
+                ))
+        must_not = []
+        if exclude_paper_ids:
+            must_not.append(models.FieldCondition(
+                key="paper_id", match=models.MatchAny(any=list(exclude_paper_ids))
+            ))
+        query_filter = models.Filter(must=must, must_not=must_not) if must or must_not else None
 
         # qdrant-client 1.19에서 `search`가 사라지고 `query_points`로 통합됐다.
         # 팀마다 설치된 버전이 다를 수 있으므로 둘 다 지원한다.

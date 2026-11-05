@@ -43,6 +43,11 @@ def build_target(spec: dict[str, Any]) -> EvalTarget:
 
         return HttpBackendTarget(**options)
 
+    if target_type in {"vector_rag", "vector"}:
+        from linkpaper_eval.targets.vector_rag import VectorRagTarget
+
+        return VectorRagTarget(**options)
+
     if target_type in {"graphrag_hybrid", "hybrid", "qdrant_neo4j"}:
         from linkpaper_eval.targets.graphrag_hybrid import GraphRagHybridTarget
 

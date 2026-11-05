@@ -54,6 +54,11 @@ class ChunkRecord(BaseModel):
     section: str | None = None
     chunk_index: int | None = None
     title: str | None = None
+    section_path: str | None = None
+    content_hash: str | None = None
+    source_version: str | None = None
+    schema_version: str | None = None
+    in_global_corpus: bool | None = None
     is_references: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -84,28 +89,13 @@ class ChunkRecord(BaseModel):
         기존 BM25 베이스라인 타깃이 그대로 읽을 수 있어야 벤치마크
         코퍼스와 오프라인 베이스라인을 같은 지표로 비교할 수 있다.
         """
-        row: dict[str, Any] = {
-            "chunk_id": self.chunk_id,
-            "paper_id": self.paper_id,
-            "text": self.text,
-        }
-        if self.section:
-            row["section"] = self.section
-        if self.chunk_index is not None:
-            row["chunk_index"] = self.chunk_index
-        if self.title:
-            row["title"] = self.title
-        return row
+        return self.model_dump(mode="json", exclude_none=True)
 
     def to_payload(self) -> dict[str, Any]:
-        """Qdrant payload / Neo4j 노드 속성 공통 형태."""
+        """Preserve indexing provenance alongside the canonical payload fields."""
         return {
-            "chunk_id": self.chunk_id,
-            "paper_id": self.paper_id,
-            "text": self.text,
-            "section": self.section,
-            "chunk_index": self.chunk_index,
-            "title": self.title,
+            **self.metadata,
+            **self.model_dump(mode="json", exclude={"metadata"}, exclude_none=True),
         }
 
     @classmethod
@@ -124,6 +114,16 @@ class ChunkRecord(BaseModel):
 
         chunk_id = pick("chunk_id", "chunkId", "id") or ""
         paper_id = pick("paper_id", "paperId") or ""
+        aliases = {
+            "chunk_id", "chunkId", "id", "paper_id", "paperId", "text", "content",
+            "page_content", "section", "sectionTitle", "chunk_index", "chunkIndex",
+            "title", "paperTitle", "is_references", "isReferences", "section_path",
+            "sectionPath", "content_hash", "contentHash", "source_version",
+            "sourceVersion", "schema_version", "schemaVersion", "in_global_corpus",
+            "inGlobalCorpus", "metadata",
+        }
+        metadata = dict(payload.get("metadata") or {})
+        metadata.update({key: value for key, value in payload.items() if key not in aliases})
         return cls(
             chunk_id=str(chunk_id),
             paper_id=str(paper_id),
@@ -131,7 +131,13 @@ class ChunkRecord(BaseModel):
             section=pick("section", "sectionTitle"),
             chunk_index=pick("chunk_index", "chunkIndex"),
             title=pick("title", "paperTitle"),
-            is_references=bool(pick("is_references", "isReferences") or False),
+            is_references=pick("is_references", "isReferences") or False,
+            section_path=pick("section_path", "sectionPath"),
+            content_hash=pick("content_hash", "contentHash"),
+            source_version=pick("source_version", "sourceVersion"),
+            schema_version=pick("schema_version", "schemaVersion"),
+            in_global_corpus=pick("in_global_corpus", "inGlobalCorpus"),
+            metadata=metadata,
         )
 
 

@@ -3,10 +3,9 @@
 ragas가 돌려주는 것은 질문·정답·근거 **텍스트**다. 반면 평가 지표는 근거를
 **청크 ID**로 비교한다. 이 간극을 메우는 것이 이 모듈이다.
 
-메타데이터에 `chunk_id`가 실려 있으면 그대로 쓰고, 없으면 근거 텍스트를
-코퍼스와 대조해 되찾는다. 되찾지 못한 근거는 버리되 비율을 리포트에
-남긴다. 조용히 버리면 정답 청크가 없는 케이스가 섞여 Recall이 이유 없이
-낮아지기 때문이다.
+`reference_context_ids`와 본문이 일치하는지 검증하고, ID가 없으면 공백을
+정규화한 본문이 유일하게 일치해야 한다. 근거가 일부라도 빠진 케이스는
+전체를 제외하고 개수를 보고한다. 불완전한 정답으로 Recall을 왜곡하지 않는다.
 """
 
 from __future__ import annotations
@@ -18,7 +17,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from linkpaper_eval.benchmark.converters import EvidenceMatcher
 from linkpaper_eval.schemas import EvalCase
 from linkpaper_eval.stores.records import ChunkRecord
 
@@ -27,6 +25,9 @@ class ExportReport(BaseModel):
     total: int = 0
     exported: int = 0
     dropped_no_gold: int = 0
+    dropped_incomplete_evidence: int = 0
+    dropped_missing_reference: int = 0
+    dropped_duplicate: int = 0
     contexts_total: int = 0
     contexts_matched: int = 0
     tags: dict[str, int] = Field(default_factory=dict)
@@ -41,7 +42,9 @@ class ExportReport(BaseModel):
         return (
             f"생성 {self.total}건 중 {self.exported}건 내보냄 "
             f"(근거 매칭률 {self.match_rate:.1%}, "
-            f"정답 청크 없어 제외 {self.dropped_no_gold}건)"
+            f"정답 청크 없어 제외 {self.dropped_no_gold}건, "
+            f"근거 불완전 {self.dropped_incomplete_evidence}건, "
+            f"정답 누락 {self.dropped_missing_reference}건, 중복 {self.dropped_duplicate}건)"
         )
 
 
@@ -72,32 +75,60 @@ def testset_to_cases(
 ) -> tuple[list[dict[str, Any]], ExportReport]:
     """ragas Testset → `EvalCase` 딕셔너리 목록."""
     report = ExportReport()
-    matcher = EvidenceMatcher(chunks)
     lookup = {chunk.chunk_id: chunk for chunk in chunks}
+    # Synthetic evidence must identify an actual source, not just similar text.
+    by_text: dict[str, list[str]] = {}
+    for chunk in chunks:
+        by_text.setdefault(" ".join(chunk.text.split()), []).append(chunk.chunk_id)
     cases: list[dict[str, Any]] = []
+    seen: set[tuple[str, tuple[str, ...]]] = set()
 
     for index, row in enumerate(_rows_from_testset(testset)):
         report.total += 1
         question = str(row.get("user_input") or row.get("question") or "").strip()
         if not question:
             continue
+        reference = str(row.get("reference") or "").strip()
+        if not reference:
+            report.dropped_missing_reference += 1
+            continue
 
         contexts = row.get("reference_contexts") or row.get("contexts") or []
         if isinstance(contexts, str):
             contexts = [contexts]
 
+        supplied_ids = row.get("reference_context_ids") or []
+        if supplied_ids and len(supplied_ids) != len(contexts):
+            report.dropped_incomplete_evidence += 1
+            continue
         gold_chunk_ids: list[str] = []
-        for context in contexts:
+        matched_count = 0
+        for position, context in enumerate(contexts):
             report.contexts_total += 1
-            matched = matcher.match(str(context))
+            normalized = " ".join(str(context).split())
+            candidates = by_text.get(normalized, [])
+            if supplied_ids:
+                proposed = str(supplied_ids[position])
+                matched = proposed if proposed in candidates else None
+            else:
+                matched = candidates[0] if len(candidates) == 1 else None
             if matched:
                 report.contexts_matched += 1
+                matched_count += 1
                 if matched not in gold_chunk_ids:
                     gold_chunk_ids.append(matched)
 
         if not gold_chunk_ids:
             report.dropped_no_gold += 1
             continue
+        if matched_count != len(contexts):
+            report.dropped_incomplete_evidence += 1
+            continue
+        identity = (" ".join(question.lower().split()), tuple(sorted(gold_chunk_ids)))
+        if identity in seen:
+            report.dropped_duplicate += 1
+            continue
+        seen.add(identity)
 
         gold_paper_ids = sorted(
             {
@@ -107,7 +138,7 @@ def testset_to_cases(
             }
         )
         synthesizer = str(row.get("synthesizer_name") or "").lower()
-        multi_hop = "multi_hop" in synthesizer or len(gold_paper_ids) > 1
+        multi_hop = "multi" in synthesizer or len(gold_chunk_ids) > 1
 
         tags = ["generated", "ragas"]
         tags.append("multi-hop" if multi_hop else "single-hop")
@@ -126,10 +157,10 @@ def testset_to_cases(
             "grades": {chunk_id: 3 for chunk_id in gold_chunk_ids},
             "expected_scope": "global" if len(gold_paper_ids) > 1 else "selected",
             "tags": tags,
+            "gold_answer": reference,
+            "reference_contexts": [lookup[cid].text for cid in gold_chunk_ids],
+            "source_metadata": [lookup[cid].model_dump(exclude={"text"}) for cid in gold_chunk_ids],
         }
-        reference = str(row.get("reference") or "").strip()
-        if reference:
-            case["gold_answer"] = reference
 
         cases.append(case)
         report.exported += 1
@@ -161,6 +192,10 @@ def validate_cases(
         for chunk_id in parsed.gold_chunk_ids:
             if chunk_id not in known:
                 problems.append(f"{parsed.case_id}: 코퍼스에 없는 청크 {chunk_id}")
+        if not parsed.question.strip():
+            problems.append(f"{parsed.case_id}: 빈 질문")
+        if not parsed.gold_chunk_ids:
+            problems.append(f"{parsed.case_id}: 정답 청크 없음")
     return problems
 
 

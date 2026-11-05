@@ -29,9 +29,10 @@ bench = [
 ]
 # ragas 기반 평가셋 생성과 LLM 지표. API 키가 필요하므로 CI 기본값이 아니다.
 ragas = [
-    "ragas>=0.2.14",
-    "openai>=1.40",
-    "langchain-openai>=0.2",
+    # Upgrade together with the real-Ragas generation/metrics integration tests.
+    "ragas==0.3.9",
+    "openai>=1.104,<3.0",
+    "langchain-openai>=0.3,<0.4",
 ]
 all = [
     "linkpaper-eval[dev,stores,bench,ragas]",

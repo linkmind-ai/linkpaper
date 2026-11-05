@@ -1,36 +1,36 @@
-"""ragas 런타임 어댑터.
+"""Optional, versioned Ragas adapters shared by generation and evaluation.
 
-평가셋 생성기와 ragas 지표가 공통으로 필요로 하는 LLM·임베딩 래퍼를
-한곳에서 만든다. ragas는 0.2 → 0.3 → 0.4를 거치며 래퍼 임포트 경로가
-여러 번 바뀌었으므로, 알려진 경로를 순서대로 시도하고 전부 실패했을 때만
-설치 안내와 함께 예외를 던진다. 버전을 하나로 못 박는 대신 실패 지점을
-명확히 하는 쪽을 택했다.
-
-ragas는 선택 의존성이다. 설치되어 있지 않아도 이 모듈을 임포트하는 것만
-으로는 실패하지 않으며, `require_ragas()`를 부를 때 확인한다.
+Ragas 0.3.9's TestsetGenerator and legacy metrics use BaseRagasLLM and
+BaseRagasEmbeddings. The newer Instructor factories implement a different
+protocol; selecting one opportunistically fails later during prompt execution.
 """
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
 import os
 from typing import Any
 
-INSTALL_HINT = (
-    "ragas가 설치되어 있지 않습니다. `pip install -e '.[ragas]'` 로 설치하세요."
-)
+SUPPORTED_RAGAS_VERSION = "0.3.9"
+INSTALL_HINT = "ragas가 설치되어 있지 않습니다. `pip install -e '.[ragas]'` 로 설치하세요."
 
 
 def ragas_version() -> str | None:
     try:
-        import ragas
-    except ImportError:
+        return version("ragas")
+    except PackageNotFoundError:
         return None
-    return getattr(ragas, "__version__", "unknown")
 
 
 def require_ragas() -> None:
-    if ragas_version() is None:
+    installed = ragas_version()
+    if installed is None:
         raise RuntimeError(INSTALL_HINT)
+    if installed != SUPPORTED_RAGAS_VERSION:
+        raise RuntimeError(
+            f"지원하는 ragas 버전은 {SUPPORTED_RAGAS_VERSION}입니다 "
+            f"(설치된 버전: {installed}). `pip install -e '.[ragas]'` 로 설치하세요."
+        )
 
 
 def require_api_key(api_key_env: str = "OPENAI_API_KEY") -> str:
@@ -45,58 +45,19 @@ def require_api_key(api_key_env: str = "OPENAI_API_KEY") -> str:
 
 
 def build_llm(model: str = "gpt-4o-mini", **kwargs: Any) -> Any:
-    """ragas가 쓰는 LLM 래퍼를 만든다."""
+    """Build the adapter accepted by both TestsetGenerator and ragas.evaluate."""
     require_ragas()
     require_api_key()
-    errors: list[str] = []
+    from langchain_openai import ChatOpenAI
+    from ragas.llms import LangchainLLMWrapper
 
-    # 1) 최신 경로: ragas가 직접 OpenAI 클라이언트를 감싼다.
-    try:
-        import openai
-        from ragas.llms import llm_factory
-
-        return llm_factory(model, client=openai.OpenAI())
-    except Exception as exc:  # noqa: BLE001 - 다음 경로를 시도한다
-        errors.append(f"llm_factory: {type(exc).__name__}: {exc}")
-
-    # 2) LangChain 래퍼 경로.
-    try:
-        from langchain_openai import ChatOpenAI
-        from ragas.llms import LangchainLLMWrapper
-
-        return LangchainLLMWrapper(ChatOpenAI(model=model, temperature=0.0, **kwargs))
-    except Exception as exc:  # noqa: BLE001
-        errors.append(f"LangchainLLMWrapper: {type(exc).__name__}: {exc}")
-
-    raise RuntimeError(
-        "ragas LLM 래퍼를 만들지 못했습니다.\n  - " + "\n  - ".join(errors)
-    )
+    return LangchainLLMWrapper(ChatOpenAI(model=model, **{"temperature": 0.0, **kwargs}))
 
 
 def build_embeddings(model: str = "text-embedding-3-small") -> Any:
-    """ragas가 쓰는 임베딩 래퍼를 만든다."""
     require_ragas()
     require_api_key()
-    errors: list[str] = []
+    from langchain_openai import OpenAIEmbeddings
+    from ragas.embeddings import LangchainEmbeddingsWrapper
 
-    try:
-        import openai
-        from ragas.embeddings import OpenAIEmbeddings
-
-        return OpenAIEmbeddings(client=openai.OpenAI(), model=model)
-    except Exception as exc:  # noqa: BLE001
-        errors.append(f"ragas.OpenAIEmbeddings: {type(exc).__name__}: {exc}")
-
-    try:
-        from langchain_openai import OpenAIEmbeddings as LangchainOpenAIEmbeddings
-        from ragas.embeddings import LangchainEmbeddingsWrapper
-
-        return LangchainEmbeddingsWrapper(
-            LangchainOpenAIEmbeddings(model=model)
-        )
-    except Exception as exc:  # noqa: BLE001
-        errors.append(f"LangchainEmbeddingsWrapper: {type(exc).__name__}: {exc}")
-
-    raise RuntimeError(
-        "ragas 임베딩 래퍼를 만들지 못했습니다.\n  - " + "\n  - ".join(errors)
-    )
+    return LangchainEmbeddingsWrapper(OpenAIEmbeddings(model=model))

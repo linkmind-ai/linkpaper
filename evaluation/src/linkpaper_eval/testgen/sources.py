@@ -25,20 +25,43 @@ from linkpaper_eval.stores.config import StoreSettings
 from linkpaper_eval.stores.records import ChunkRecord
 
 
-def from_jsonl(path: str | Path, limit: int | None = None) -> list[ChunkRecord]:
+def _ordered(chunks: list[ChunkRecord]) -> list[ChunkRecord]:
+    """Keep stored IDs unchanged and reject conflicting source records."""
+    unique: dict[str, ChunkRecord] = {}
+    for chunk in chunks:
+        if not chunk.chunk_id.strip() or not chunk.paper_id.strip() or not chunk.text.strip():
+            raise ValueError("Every source chunk needs chunk_id, paper_id and nonempty text")
+        previous = unique.get(chunk.chunk_id)
+        if previous is not None and previous != chunk:
+            raise ValueError(f"Conflicting source records for chunk_id={chunk.chunk_id}")
+        unique[chunk.chunk_id] = chunk
+    return sorted(unique.values(), key=lambda chunk: chunk.chunk_id)
+
+
+def from_jsonl(
+    path: str | Path,
+    limit: int | None = None,
+    paper_ids: list[str] | None = None,
+) -> list[ChunkRecord]:
     rows = read_jsonl(Path(path))
-    chunks = [ChunkRecord.from_payload(row) for row in rows if row.get("text")]
-    return chunks[:limit] if limit else chunks
+    chunks = [ChunkRecord.from_payload(row) for row in rows]
+    if paper_ids is not None:
+        allowed = set(paper_ids)
+        chunks = [chunk for chunk in chunks if chunk.paper_id in allowed]
+    chunks = _ordered(chunks)
+    return chunks[:limit] if limit is not None else chunks
 
 
 def from_qdrant(
-    settings: StoreSettings | None = None, limit: int | None = None
+    settings: StoreSettings | None = None,
+    limit: int | None = None,
+    paper_ids: list[str] | None = None,
 ) -> list[ChunkRecord]:
     from linkpaper_eval.stores.qdrant_store import QdrantStore
 
     settings = settings or StoreSettings.from_env()
     with QdrantStore(settings.qdrant) as store:
-        return list(store.iter_chunks(limit=limit))
+        return _ordered(list(store.iter_chunks(limit=limit, paper_ids=paper_ids)))
 
 
 def from_neo4j(
@@ -60,7 +83,7 @@ def from_neo4j(
         if paper_ids and expand_hops > 0:
             neighbors = store.related_papers(paper_ids, hops=expand_hops)
             paper_ids = list(dict.fromkeys([*paper_ids, *neighbors]))
-        return list(store.iter_chunks(limit=limit, paper_ids=paper_ids))
+        return _ordered(list(store.iter_chunks(limit=limit, paper_ids=paper_ids)))
 
 
 def load_chunks(
@@ -72,16 +95,16 @@ def load_chunks(
     expand_hops: int = 1,
 ) -> list[ChunkRecord]:
     """소스 이름으로 청크를 불러온다."""
+    if limit is not None and limit < 1:
+        raise ValueError("limit must be positive")
+    if not 0 <= expand_hops <= 3:
+        raise ValueError("expand_hops must be between 0 and 3")
     if source == "jsonl":
         if corpus is None:
             raise ValueError("source=jsonl 에는 --corpus 경로가 필요합니다.")
-        chunks = from_jsonl(corpus, limit=limit)
-        if paper_ids:
-            allowed = set(paper_ids)
-            chunks = [chunk for chunk in chunks if chunk.paper_id in allowed]
-        return chunks
+        return from_jsonl(corpus, limit=limit, paper_ids=paper_ids)
     if source == "qdrant":
-        return from_qdrant(settings, limit=limit)
+        return from_qdrant(settings, limit=limit, paper_ids=paper_ids)
     if source == "neo4j":
         return from_neo4j(
             settings, limit=limit, paper_ids=paper_ids, expand_hops=expand_hops
