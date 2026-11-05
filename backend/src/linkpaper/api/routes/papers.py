@@ -1,25 +1,39 @@
+import logging
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from linkpaper.api.dependencies import get_paper_analysis_pipeline
+from linkpaper.api.dependencies import (
+    get_paper_analysis_pipeline,
+    get_paper_service,
+)
+from linkpaper.modules.papers import Paper, PaperService
 from linkpaper.pipelines.paper_analysis import PaperAnalysisPipeline
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 PaperAnalysisDependency = Annotated[
     PaperAnalysisPipeline,
     Depends(get_paper_analysis_pipeline),
 ]
+PaperServiceDependency = Annotated[PaperService, Depends(get_paper_service)]
 
 
-@router.get("")
-async def search_papers(query: str) -> list[dict[str, str]]:
-    # 추후 파이프라인을 통해 Hugging Face Papers 어댑터와 연결한다.
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail=f"Paper search is not implemented yet: {query}",
-    )
+@router.get("/search")
+async def search_papers(
+    papers: PaperServiceDependency,
+    q: str = "",
+) -> list[Paper]:
+    try:
+        return await papers.search(q)
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.exception("Hugging Face Papers 검색 실패")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="논문 검색 서비스에 연결하지 못했습니다.",
+        ) from exc
 
 
 @router.post("/{paper_id}/analysis", status_code=status.HTTP_202_ACCEPTED)

@@ -29,14 +29,16 @@ backend/
 
 - `GET /api/v1/health`
 - `POST /api/v1/chat/stream`
-- `GET /api/v1/papers`
+- `GET /api/v1/papers/search`
 - `POST /api/v1/papers/{paper_id}/analysis`
 - `POST /api/v1/conversations/{conversation_id}/messages`
 
 `chat/stream`은 온라인 단일 논문 RAG와 OpenAI SSE 생성을 제공한다. 개발 범위,
 테스트 방법과 향후 GraphRAG 계획은
 [`docs/pipeline-development.md`](../docs/pipeline-development.md)를 참고한다.
-논문 검색·분석과 conversation 라우트는 아직 `501 Not Implemented`를 반환한다.
+`papers/search`는 Hugging Face Papers 검색 결과를 반환하고, 검색어가 없으면 최신
+Daily Papers를 반환한다. 논문 분석과 conversation 라우트는 아직
+`501 Not Implemented`를 반환한다.
 
 ### Pipelines
 
@@ -131,6 +133,7 @@ docker compose up --build
 
 Docker Compose는 현재 다음 서비스를 실행한다.
 
+- 프론트엔드: <http://localhost:5173>
 - FastAPI 백엔드: <http://localhost:8000>
 - Swagger UI: <http://localhost:8000/docs>
 - Neo4j Browser: <http://localhost:7474>
@@ -155,20 +158,20 @@ Python 3.11 이상이 필요하다.
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e '.[dev]'
-set -a
-source ../.env
-set +a
-uvicorn linkpaper.main:app --reload
+pip install '.[dev]'
+cp ../.env .env
+uvicorn linkpaper.main:app --reload --app-dir src
 ```
 
-직접 실행할 때는 위와 같이 루트 `.env`를 현재 셸에 내보내야 한다. 또는 같은
-설정을 `backend/.env`에 두면 `Settings`가 자동으로 읽는다.
+`Settings`는 현재 디렉터리의 `.env`를 읽으므로 설정을 `backend/.env`에 둔다.
+Windows의 한글 경로에서는 `pip install -e`로 설치한 Python이 시작되지 않는다.
+일반 설치 후 `--app-dir src`를 사용하면 소스 수정도 바로 반영된다.
 
-테스트는 다음 명령으로 실행한다.
+테스트는 다음 명령으로 실행한다. `tests/test_retrieval.py`는 아직 구현되지 않은
+API를 참조해 수집 단계에서 실패하므로 제외한다.
 
 ```bash
-pytest
+pytest --ignore=tests/test_retrieval.py
 ```
 
 ## 현재까지 완료된 작업

@@ -1,16 +1,12 @@
 import { parseSSEStream } from "../utils/sse.js";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "/api";
+const API_BASE = import.meta.env.VITE_API_BASE || "/api/v1";
 
 /**
- * 백엔드가 arXiv API(export.arxiv.org)를 직접 호출/정규화해서 내려주는 것을 가정한 엔드포인트.
- * 계약(초안): GET {API_BASE}/papers/search?q=검색어
+ * 백엔드가 Hugging Face Papers 검색 결과를 정규화해서 내려주는 엔드포인트.
+ * GET {API_BASE}/papers/search?q=검색어
  *   → [{ id, title, authors, year, categories, summary, pdfUrl, arxivUrl }]
- *
- * arXiv 검색을 백엔드에서 프록시하는 이유:
- *   - export.arxiv.org는 브라우저 직접 호출 시 CORS 이슈가 있을 수 있음
- *   - 응답을 그래프DB에 적재하기 전 정규화가 필요함
- *   - API 요청 빈도 제어(레이트리밋)를 서버에서 관리하는 게 안전함
+ * 검색어가 없으면 최신 Daily Papers 목록을 반환합니다.
  */
 export async function searchPapers(query) {
   const params = new URLSearchParams(query ? { q: query } : {});

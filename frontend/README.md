@@ -1,7 +1,7 @@
 # LinkPaper Frontend
 
-React + Vite + pnpm 기반 프론트엔드입니다. 백엔드(FastAPI)가 준비되기 전까지는
-`VITE_USE_MOCK=true` 로 하드코딩된 목업 데이터/스트리밍으로 전체 UI를 확인할 수 있습니다.
+React + Vite + pnpm 기반 프론트엔드입니다. 기본값으로 실제 백엔드(FastAPI)에 연결되며,
+백엔드 없이 UI만 확인할 때는 `VITE_USE_MOCK=true` 로 목업 데이터/스트리밍을 사용합니다.
 
 ## 레이아웃
 
@@ -44,32 +44,32 @@ Exploration'을 사용자가 직접 고르는 기능 선택 UI가 있었지만, 
 
 ```bash
 pnpm install
-cp .env.example .env
 pnpm dev
 ```
 
-`http://localhost:5173` 에서 확인합니다.
+`http://localhost:5173` 에서 확인합니다. FastAPI 서버를 먼저 `http://localhost:8000` 에서
+실행해주세요. 전체 실행 방법은 [루트 README](../README.md)를 참고합니다.
 
-## 목업 → 실제 백엔드 전환
+## 백엔드 연동
 
-1. `.env`에서 `VITE_USE_MOCK=false` 로 변경
-2. FastAPI 서버를 `http://localhost:8000` (또는 `vite.config.js`의 proxy target)에서 실행
-3. 아래 계약에 맞춰 엔드포인트 2개를 구현하면, **컴포넌트 코드 수정 없이** 그대로 연동됩니다.
+- 브라우저는 `/api/v1`을 호출하고, Vite 개발 서버가 `/api` 요청을 `VITE_BACKEND_ORIGIN`
+  (기본값 `http://localhost:8000`)으로 전달합니다.
+- 백엔드 없이 확인하려면 `cp .env.example .env` 후 `VITE_USE_MOCK=true` 로 변경합니다.
 
-### `GET /api/papers/search?q=검색어`
+### `GET /api/v1/papers/search?q=검색어`
 
-백엔드가 arXiv API(`export.arxiv.org`)를 호출해 아래 스키마로 정규화해서 내려줍니다.
-arXiv 호출을 백엔드에서 대신하는 이유는 (1) 브라우저 직접 호출 시 CORS 이슈, (2) 그래프DB
-적재 전 정규화 필요, (3) 레이트리밋을 서버에서 관리하기 위해서입니다.
+백엔드가 Hugging Face Papers 검색 결과를 아래 스키마로 정규화해서 내려줍니다.
+`categories`에는 HF AI 키워드 상위 3개가 들어가고, arXiv 논문이 아니면 `pdfUrl`과
+`arxivUrl`은 `null`입니다.
 
 ```json
 [
   {
     "id": "1706.03762",
     "title": "Attention Is All You Need",
-    "authors": "Vaswani, Shazeer, Parmar et al.",
+    "authors": "Ashish Vaswani, Noam Shazeer, Niki Parmar et al.",
     "year": 2017,
-    "categories": ["cs.CL", "cs.LG"],
+    "categories": ["recurrent neural networks", "encoder-decoder configuration"],
     "summary": "논문 초록...",
     "pdfUrl": "https://arxiv.org/pdf/1706.03762",
     "arxivUrl": "https://arxiv.org/abs/1706.03762"
@@ -77,10 +77,10 @@ arXiv 호출을 백엔드에서 대신하는 이유는 (1) 브라우저 직접 �
 ]
 ```
 
-쿼리가 비어 있으면(`q=""`) 기본/최근 논문 목록을 반환하도록 구현해주세요. 좌측 사이드바가
-처음 마운트될 때 빈 쿼리로 한 번 호출합니다.
+쿼리가 비어 있으면 최신 Daily Papers 목록을 반환합니다. 좌측 사이드바가 처음 마운트될 때
+빈 쿼리로 한 번 호출합니다.
 
-### `POST /api/chat/stream` (text/event-stream)
+### `POST /api/v1/chat/stream` (text/event-stream)
 
 요청 본문:
 

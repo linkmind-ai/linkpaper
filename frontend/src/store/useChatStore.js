@@ -52,7 +52,16 @@ export const useChatStore = create((set, get) => ({
     if (!trimmed || get().isStreaming) return;
 
     const { selectedPaper } = get();
-    const userMsg = { id: nextId(), role: "user", content: trimmed };
+    if (!selectedPaper) {
+      useToastStore.getState().push({
+        variant: "error",
+        title: "논문을 먼저 선택해주세요",
+        description: "왼쪽 검색 결과에서 질문할 논문을 선택할 수 있어요.",
+      });
+      return;
+    }
+
+    const userMsg ={ id: nextId(), role: "user", content: trimmed };
     const assistantMsg = {
       id: nextId(),
       role: "assistant",
@@ -79,10 +88,13 @@ export const useChatStore = create((set, get) => ({
     };
 
     try {
-      const history = get().messages.filter((m) => m.status !== "streaming");
+      // 실패해 내용이 비어 있는 답변은 모델 입력에서 제외합니다.
+      const history = get()
+        .messages.filter((m) => m.status !== "streaming" && m.content)
+        .map(({ role, content }) => ({ role, content }));
 
       for await (const event of streamChat({
-        paperId: selectedPaper?.id,
+        paperId: selectedPaper.id,
         message: trimmed,
         history,
         signal: abortController.signal,
@@ -108,6 +120,11 @@ export const useChatStore = create((set, get) => ({
         }
       }
     } catch (err) {
+      // 사용자가 중지한 경우는 오류가 아니므로 받은 내용까지만 남깁니다.
+      if (err.name === "AbortError") {
+        updateAssistant({ status: "done" });
+        return;
+      }
       updateAssistant({ status: "error" });
       useToastStore.getState().push({
         variant: "error",

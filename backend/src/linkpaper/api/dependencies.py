@@ -1,7 +1,10 @@
 from functools import lru_cache
 
 from linkpaper.adapters.llm import OpenAIClient
-from linkpaper.adapters.papers import HuggingFaceMarkdownClient
+from linkpaper.adapters.papers import (
+    HuggingFaceMarkdownClient,
+    HuggingFacePapersClient,
+)
 from linkpaper.core.config import get_settings
 from linkpaper.modules.documents import DocumentService
 from linkpaper.modules.generation import GenerationService
@@ -37,9 +40,18 @@ def get_online_retrieval_service() -> OnlineRetrievalService:
 
 
 @lru_cache
+def get_paper_service() -> PaperService:
+    settings = get_settings()
+    return PaperService(
+        source=HuggingFacePapersClient(settings=settings),
+        default_limit=settings.paper_search_limit,
+    )
+
+
+@lru_cache
 def get_paper_analysis_pipeline() -> PaperAnalysisPipeline:
     return PaperAnalysisPipeline(
-        papers=PaperService(),
+        papers=get_paper_service(),
         documents=DocumentService(),
         knowledge_graph=KnowledgeGraphService(),
         generation=get_generation_service(),
